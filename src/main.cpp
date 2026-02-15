@@ -3,6 +3,7 @@
 #include <XPT2046_Touchscreen.h>
 #include <SD.h>
 #include <WiFi.h>
+#include <esp_system.h>
 
 #include "pin_config.h"
 #include "audio_player.h"
@@ -210,8 +211,25 @@ void setup() {
     Serial.println("Loading config from NVS...");
     configMgr.loadConfig();
 
+    // Check reset reason to decide startup mode
+    esp_reset_reason_t resetReason = esp_reset_reason();
+    Serial.print("Reset reason: ");
+    Serial.println(resetReason);
+
+    bool startInSettingsMode = false;
+
+    if (resetReason == ESP_RST_POWERON) {
+        // Power cycle - always start in settings mode
+        Serial.println("Power cycle detected - forcing Settings Mode");
+        startInSettingsMode = true;
+    } else {
+        // Software reset or other - use NVS value
+        Serial.println("Software reset - checking NVS setting");
+        startInSettingsMode = configMgr.isSettingsMode();
+    }
+
     // Check if we should start in settings mode or normal mode
-    if (configMgr.isSettingsMode()) {
+    if (startInSettingsMode) {
         // ==================== SETTINGS MODE ====================
         Serial.println("=== STARTING IN SETTINGS MODE (30s auto-timeout) ===");
 
