@@ -254,8 +254,7 @@ const char index_html[] PROGMEM = R"rawliteral(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jingle Machine Settings</title>
 <style>
-:root{--bg-color:#1a1a1a}
-body{font-family:Arial;margin:0;padding:20px;background:var(--bg-color);color:#fff}
+body{font-family:Arial;margin:0;padding:20px;background:#1a1a1a;color:#fff}
 .container{max-width:900px;margin:0 auto}
 h1{color:#4CAF50;text-align:center}
 .card{background:#2a2a2a;padding:20px;margin:20px 0;border-radius:8px}
@@ -295,13 +294,6 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <button class="btn-secondary" onclick="saveBT()">Save Bluetooth</button>
 </div>
 <div class="card">
-<h2>UI Colors</h2>
-<div class="form-group">
-<label>Background Color:</label>
-<input type="color" id="uiBgColor" value="#1a1a1a" oninput="onUIColorChange()">
-</div>
-</div>
-<div class="card">
 <h2>Button Configuration</h2>
 <div id="buttons"></div>
 <button class="btn-secondary" onclick="saveButtons()">Save Buttons</button>
@@ -323,21 +315,7 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <div id="status" class="status"></div>
 </div>
 <script>
-let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50',textColor:'#FFFFFF'},{label:'Btn2',file:'',color:'#2196F3',textColor:'#FFFFFF'},{label:'Btn3',file:'',color:'#FF9800',textColor:'#000000'},{label:'Btn4',file:'',color:'#F44336',textColor:'#FFFFFF'},{label:'Btn5',file:'',color:'#9C27B0',textColor:'#FFFFFF'},{label:'Btn6',file:'',color:'#00BCD4',textColor:'#000000'},{label:'Btn7',file:'',color:'#FFEB3B',textColor:'#000000'},{label:'Btn8',file:'',color:'#795548',textColor:'#FFFFFF'}],uiBgColor:'#1a1a1a'};
-function applyUIColors(){
-document.documentElement.style.setProperty('--bg-color',config.uiBgColor||'#1a1a1a');
-}
-let uiColorTimer=null;
-function onUIColorChange(){
-keepalive();
-config.uiBgColor=document.getElementById('uiBgColor').value;
-applyUIColors();
-clearTimeout(uiColorTimer);
-uiColorTimer=setTimeout(async ()=>{
-await saveConfig();
-showStatus('UI background auto-saved','#4CAF50');
-},2000);
-}
+let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50',textColor:'#FFFFFF'},{label:'Btn2',file:'',color:'#2196F3',textColor:'#FFFFFF'},{label:'Btn3',file:'',color:'#FF9800',textColor:'#000000'},{label:'Btn4',file:'',color:'#F44336',textColor:'#FFFFFF'},{label:'Btn5',file:'',color:'#9C27B0',textColor:'#FFFFFF'},{label:'Btn6',file:'',color:'#00BCD4',textColor:'#000000'},{label:'Btn7',file:'',color:'#FFEB3B',textColor:'#000000'},{label:'Btn8',file:'',color:'#795548',textColor:'#FFFFFF'}]};
 async function loadConfig(){
 keepalive();
 try{
@@ -349,8 +327,6 @@ if(c&&c.buttons)config=c;
 }catch(e){console.error(e);}
 document.getElementById('btDevice').value=config.btDevice||'';
 document.getElementById('btVolume').value=config.btVolume||80;
-document.getElementById('uiBgColor').value=config.uiBgColor||'#1a1a1a';
-applyUIColors();
 renderButtons();
 loadFiles();
 }
@@ -366,6 +342,15 @@ const html=config.buttons.map((b,i)=>`
 document.getElementById('buttons').innerHTML=html;
 loadFiles();
 }
+function normalizeColor(color){
+if(!color)return '#000000';
+color=color.toUpperCase();
+if(!color.startsWith('#'))color='#'+color;
+if(color.length===4){
+color='#'+color[1]+color[1]+color[2]+color[2]+color[3]+color[3];
+}
+return color.toLowerCase();
+}
 function updateButtonInputs(){
 for(let i=0;i<8;i++){
 const labelEl=document.getElementById('label'+i);
@@ -373,12 +358,16 @@ const colorEl=document.getElementById('color'+i);
 const textColorEl=document.getElementById('textColor'+i);
 if(labelEl&&config.buttons[i])labelEl.value=config.buttons[i].label||'';
 if(colorEl&&config.buttons[i]){
-colorEl.value=config.buttons[i].color||'#4CAF50';
-console.log('Set color'+i+' to:',colorEl.value);
+const normalizedColor=normalizeColor(config.buttons[i].color||'#4CAF50');
+colorEl.value=normalizedColor;
+config.buttons[i].color=normalizedColor;
+console.log('Set color'+i+' to:',normalizedColor);
 }
 if(textColorEl&&config.buttons[i]){
-textColorEl.value=config.buttons[i].textColor||'#FFFFFF';
-console.log('Set textColor'+i+' to:',textColorEl.value);
+const normalizedTextColor=normalizeColor(config.buttons[i].textColor||'#FFFFFF');
+textColorEl.value=normalizedTextColor;
+config.buttons[i].textColor=normalizedTextColor;
+console.log('Set textColor'+i+' to:',normalizedTextColor);
 }
 }
 }
@@ -394,8 +383,31 @@ sel.innerHTML='<option value="">None</option>'+files.map(f=>`<option value="/jin
 }
 }
 const fileList=document.getElementById('fileList');
-if(fileList)fileList.innerHTML='<strong>Files on SD:</strong><br>'+(files.length?files.join('<br>'):'No files');
+if(fileList){
+if(files.length){
+const html='<strong>Files on SD:</strong><br>'+files.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px;border-bottom:1px solid #444"><span>${f}</span><button class="btn-warning btn-small" onclick="deleteFile('${f}')">Delete</button></div>`).join('');
+fileList.innerHTML=html;
+}else{
+fileList.innerHTML='<strong>Files on SD:</strong><br>No files';
+}
+}
 }catch(e){console.error(e);}
+}
+async function deleteFile(filename){
+if(!confirm('Delete file "'+filename+'"?'))return;
+keepalive();
+showStatus('Deleting...','#FF9800');
+try{
+const r=await fetch('/api/files/delete',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'filename='+encodeURIComponent(filename)});
+if(r.ok){
+showStatus('File deleted!','#4CAF50');
+loadFiles();
+}else{
+showStatus('Delete failed','#f44336');
+}
+}catch(e){
+showStatus('Delete error','#f44336');
+}
 }
 async function saveBT(){
 keepalive();
@@ -662,6 +674,26 @@ void SettingsServer::setupRoutes() {
         fileList += "]";
 
         request->send(200, "application/json", fileList);
+    });
+
+    // API: Delete file from SD card
+    server.on("/api/files/delete", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();
+        if (!request->hasParam("filename", true)) {
+            request->send(400, "text/plain", "Missing filename parameter");
+            return;
+        }
+
+        String filename = request->getParam("filename", true)->value();
+        String filepath = "/jingles/" + filename;
+
+        if (SD.remove(filepath)) {
+            Serial.println("Deleted file: " + filepath);
+            request->send(200, "text/plain", "File deleted");
+        } else {
+            Serial.println("Failed to delete: " + filepath);
+            request->send(500, "text/plain", "Failed to delete file");
+        }
     });
 }
 
