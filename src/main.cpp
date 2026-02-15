@@ -243,8 +243,12 @@ void setup() {
         tft.drawString("Open browser:", 160, 110, 2);
         tft.setTextColor(TFT_WHITE);
         tft.drawString("http://" + WiFi.localIP().toString(), 160, 140, 4);
-        tft.setTextColor(TFT_CYAN);
-        tft.drawString("Auto-switch: 30s", 160, 180, 2);
+
+        // Draw "Leave" button
+        tft.fillRoundRect(110, 170, 100, 50, 8, TFT_RED);
+        tft.setTextColor(TFT_WHITE);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("LEAVE", 160, 195, 4);
 
         delay(1000);
 
@@ -252,10 +256,6 @@ void setup() {
         settingsServer = new SettingsServer();
         settingsServer->begin(&configMgr);
         settingsMode = true;
-
-        tft.fillRect(0, 180, 320, 40, TFT_BLUE);
-        tft.setTextColor(TFT_GREEN);
-        tft.drawString("Server Ready!", 160, 200, 2);
         Serial.println("SettingsServer started - will auto-switch to normal mode after 30s");
     } else {
         // ==================== NORMAL MODE ====================
@@ -494,12 +494,30 @@ void loop() {
         // Auto-switch to normal mode after 30 seconds of inactivity
         static unsigned long settingsModeStart = 0;
         static bool settingsModeActive = false;
+        static int lastDisplayedSeconds = -1;
 
         // Initialize timer when first entering settings mode
         if (!settingsModeActive) {
             settingsModeStart = millis();
             settingsModeActive = true;
+            lastDisplayedSeconds = -1;
             Serial.println("[SETTINGS] Timer started - 30s until auto-switch");
+        }
+
+        // Calculate remaining seconds
+        unsigned long elapsed = millis() - settingsModeStart;
+        int remainingSeconds = 30 - (elapsed / 1000);
+        if (remainingSeconds < 0) remainingSeconds = 0;
+
+        // Update display every second
+        if (remainingSeconds != lastDisplayedSeconds) {
+            lastDisplayedSeconds = remainingSeconds;
+
+            // Clear countdown area and redraw
+            tft.fillRect(0, 0, 60, 30, TFT_BLUE);
+            tft.setTextDatum(TL_DATUM);
+            tft.setTextColor(TFT_WHITE);
+            tft.drawString(String(remainingSeconds) + "s", 10, 10, 4);
         }
 
         if (millis() - settingsModeStart > 30000) {  // 30 seconds timeout
