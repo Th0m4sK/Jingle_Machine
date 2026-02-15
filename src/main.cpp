@@ -312,19 +312,19 @@ void setup() {
         tft.setTextColor(TFT_YELLOW);
         tft.drawString("Starting audio...", 10, 50, 2);
 
-        // Get BT device name and store in a static char array to prevent string corruption
-        String btDeviceStr = configMgr.getBTDeviceName();
+        // Get BT device MAC address for connection
+        String btDeviceStr = configMgr.getBTDeviceName();  // Returns MAC address
         static char btDevice[32];
         strncpy(btDevice, btDeviceStr.c_str(), 31);
         btDevice[31] = '\0';
 
-        Serial.print("BT Device from config: ");
+        Serial.print("BT MAC from config: ");
         Serial.println(btDevice);
         Serial.print("BT Volume from config: ");
         Serial.println(configMgr.getBTVolume());
 
         bool clearPairing = false;
-        audioPlayer.begin(btDevice, clearPairing);
+        audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
         audioPlayer.setVolume(configMgr.getBTVolume());
         tft.setTextColor(TFT_GREEN);
         tft.drawString("Audio OK", 10, 50, 2);
@@ -385,20 +385,20 @@ void switchToNormalMode() {
     tft.setTextColor(TFT_YELLOW);
     tft.drawString("Starting audio...", 10, 70, 2);
 
-    // Get BT device name and store in a static char array to prevent string corruption
-    String btDeviceStr = configMgr.getBTDeviceName();
+    // Get BT device MAC address for connection
+    String btDeviceStr = configMgr.getBTDeviceName();  // Returns MAC address
     static char btDevice[32];
     strncpy(btDevice, btDeviceStr.c_str(), 31);
     btDevice[31] = '\0';
 
-    Serial.print("BT Device from config: ");
+    Serial.print("BT MAC from config: ");
     Serial.println(btDevice);
     Serial.print("BT Volume from config: ");
     Serial.println(configMgr.getBTVolume());
 
     // Clear old pairing to force fresh discovery (set to false after first successful pairing)
     bool clearPairing = false;
-    audioPlayer.begin(btDevice, clearPairing);
+    audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
     audioPlayer.setVolume(configMgr.getBTVolume());
     tft.setTextColor(TFT_GREEN);
     tft.drawString("Audio OK", 10, 70, 2);
