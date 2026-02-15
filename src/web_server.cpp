@@ -21,10 +21,18 @@ void SimpleServer::setAudioPlayer(AudioPlayer* player) {
 }
 
 void SimpleServer::handle() {
+    static unsigned long lastCheck = 0;
+    if (millis() - lastCheck > 5000) {
+        Serial.println("[WEB] Server handle() running...");
+        lastCheck = millis();
+    }
+
     WiFiClient client = server.available();
     if (!client) {
         return;
     }
+
+    Serial.println("[WEB] Client connected!");
 
     String request = "";
     while (client.connected()) {
@@ -37,6 +45,9 @@ void SimpleServer::handle() {
             }
         }
     }
+
+    Serial.print("[WEB] Request: ");
+    Serial.println(request.substring(0, 50));
 
     // Check for playback requests
     if (request.indexOf("GET /play/") >= 0) {
@@ -51,23 +62,59 @@ void SimpleServer::handle() {
         if (buttonId >= 0 && audioPlayer) {
             String filepath = configMgr->getButtonFile(buttonId);
 
-            // Stop current playback
-            if (audioPlayer->isPlaying()) {
-                audioPlayer->stop();
+            Serial.println("=== Play Request ===");
+            Serial.print("Button: ");
+            Serial.println(buttonId);
+            Serial.print("File: ");
+            Serial.println(filepath);
+
+            Serial.println("[DEBUG] Checking BT connection...");
+            // Check Bluetooth connection first
+            if (!audioPlayer->isConnected()) {
+                client.println("HTTP/1.1 503 Service Unavailable");
+                client.println("Content-Type: text/plain");
+                client.println("Connection: close");
+                client.println();
+                client.println("Bluetooth not connected");
+                client.stop();
+                Serial.println("ERROR: Bluetooth not connected!");
+                return;
             }
 
-            // Play new file
-            bool success = false;
-            if (SD.exists(filepath)) {
-                success = audioPlayer->playFile(filepath);
-            }
+            Serial.println("[DEBUG] BT connected, checking file...");
+            // Validate file exists before committing to play
+            bool canPlay = (filepath.length() > 0 && SD.exists(filepath));
+            Serial.print("[DEBUG] File exists: ");
+            Serial.println(canPlay ? "YES" : "NO");
 
+            Serial.println("[DEBUG] Sending HTTP response...");
+            // Send HTTP response FIRST, before starting playback
             client.println("HTTP/1.1 200 OK");
             client.println("Content-Type: text/plain");
             client.println("Connection: close");
             client.println();
-            client.println(success ? "Playing" : "Error");
+            client.println(canPlay ? "Playing" : "Error");
+            client.flush();
             client.stop();
+
+            Serial.println("[DEBUG] HTTP response sent");
+            // NOW start playback after HTTP response is sent
+            if (canPlay) {
+                Serial.println("[DEBUG] Stopping current playback...");
+                // Stop current playback
+                if (audioPlayer->isPlaying()) {
+                    audioPlayer->stop();
+                }
+
+                Serial.println("[DEBUG] Calling playFile()...");
+                // Play new file
+                bool success = audioPlayer->playFile(filepath);
+                Serial.print("Play result: ");
+                Serial.println(success ? "SUCCESS" : "FAILED");
+            } else {
+                Serial.println("ERROR: File not found or not configured");
+            }
+
             return;
         }
     }
@@ -115,8 +162,11 @@ void SimpleServer::handle() {
     client.println("<div class='grid'>");
 
     // Generate buttons from config
+    Serial.println("[DEBUG] Loading config for buttons...");
     JsonDocument config = configMgr->getConfig();
     JsonArray buttons = config["buttons"].as<JsonArray>();
+    Serial.print("[DEBUG] Number of buttons: ");
+    Serial.println(buttons.size());
     int idx = 0;
     for (JsonVariant btnVar : buttons) {
         if (idx >= 8) break;
@@ -242,8 +292,12 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 </div>
 <div class="card">
 <h2>File Upload</h2>
+<div class="form-group">
+<label>Upload Audio Files (WAV):</label>
 <input type="file" id="fileInput" multiple accept=".wav">
-<button class="btn-primary" onclick="uploadFiles()">Upload WAV Files</button>
+<small style="color:#888">Only WAV files supported (44.1kHz, 16-bit, mono/stereo)</small>
+</div>
+<button class="btn-primary" onclick="uploadFiles()">Upload Files</button>
 <div id="fileList" style="margin-top:10px"></div>
 </div>
 <div class="card">
@@ -332,9 +386,11 @@ const files=document.getElementById('fileInput').files;
 if(!files.length){showStatus('No files selected','#f44336');return;}
 const formData=new FormData();
 for(let f of files)formData.append('files',f);
+showStatus('Uploading...','#2196F3');
 const r=await fetch('/api/upload',{method:'POST',body:formData});
 showStatus(r.ok?'Uploaded!':'Upload failed',r.ok?'#4CAF50':'#f44336');
 if(r.ok)loadFiles();
+document.getElementById('fileInput').value='';
 }
 async function exitSettings(){
 await fetch('/api/exit',{method:'POST'});

@@ -11,6 +11,9 @@
 #include "web_server.h"
 #include "wifi_credentials.h"
 
+// Test mode - loop playback without WiFi
+#define TEST_MODE_LOOP 1
+
 // Hardware objects
 TFT_eSPI tft = TFT_eSPI();
 
@@ -79,7 +82,8 @@ void setupHardware() {
     tft.drawString("3. SD init...", 10, 50, 2);
     delay(100);
 
-    sdCardAvailable = SD.begin(SD_CS);
+    // Use 40MHz SPI clock for faster SD card reads (better audio streaming)
+    sdCardAvailable = SD.begin(SD_CS, SPI, 40000000);
     if (!sdCardAvailable) {
         Serial.println("WARNING: SD Card not found");
         tft.setTextColor(TFT_ORANGE);
@@ -181,6 +185,27 @@ void setupWiFi() {
 
 void setup() {
     setupHardware();
+
+#if TEST_MODE_LOOP
+    // Test mode - skip WiFi, just init BT and loop playback
+    Serial.println("=== TEST MODE - LOOP PLAYBACK ===");
+
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextColor(TFT_YELLOW);
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString("TEST MODE", 160, 100, 4);
+    tft.drawString("Loop Playback", 160, 140, 2);
+
+    // Initialize audio player with T10
+    audioPlayer.begin("T10", false);
+    audioPlayer.setVolume(80);
+
+    Serial.println("Waiting for BT connection...");
+    delay(5000);  // Give BT time to connect
+
+    return;  // Skip rest of setup
+#endif
+
     setupWiFi();
 
     if (configMgr.isSettingsMode()) {
@@ -242,8 +267,21 @@ void setup() {
         // Initialize audio player
         tft.setTextColor(TFT_YELLOW);
         tft.drawString("Starting audio...", 10, 70, 2);
-        String btDevice = configMgr.getBTDeviceName();
-        audioPlayer.begin(btDevice.c_str());
+
+        // Get BT device name and store in a static char array to prevent string corruption
+        String btDeviceStr = configMgr.getBTDeviceName();
+        static char btDevice[32];
+        strncpy(btDevice, btDeviceStr.c_str(), 31);
+        btDevice[31] = '\0';
+
+        Serial.print("BT Device from config: ");
+        Serial.println(btDevice);
+        Serial.print("BT Volume from config: ");
+        Serial.println(configMgr.getBTVolume());
+
+        // Clear old pairing to force fresh discovery (set to false after first successful pairing)
+        bool clearPairing = false;  // Changed to false to stop boot loop
+        audioPlayer.begin(btDevice, clearPairing);
         audioPlayer.setVolume(configMgr.getBTVolume());
         tft.setTextColor(TFT_GREEN);
         tft.drawString("Audio OK", 10, 70, 2);
@@ -266,7 +304,7 @@ void setup() {
         tft.fillRect(0, 0, 320, 25, TFT_BLACK);
         tft.setTextDatum(TL_DATUM);
         tft.setTextColor(TFT_GREEN);
-        tft.drawString("BT: " + btDevice, 5, 5, 1);
+        tft.drawString(String("BT: ") + btDevice, 5, 5, 1);
         tft.setTextDatum(TR_DATUM);
         tft.setTextColor(TFT_CYAN);
         tft.drawString(WiFi.localIP().toString(), 315, 5, 1);
@@ -278,6 +316,34 @@ void setup() {
 }
 
 void loop() {
+#if TEST_MODE_LOOP
+    // Test mode - loop playback every 10 seconds
+    static unsigned long lastPlay = 0;
+    static int playCount = 0;
+
+    if (millis() - lastPlay > 10000) {  // 10 second pause between plays
+        lastPlay = millis();
+        playCount++;
+
+        // Check heap memory
+        uint32_t freeHeap = ESP.getFreeHeap();
+        uint32_t minFreeHeap = ESP.getMinFreeHeap();
+
+        Serial.printf("[%lu] === PLAY #%d ===\n", millis(), playCount);
+        Serial.printf("[%lu] Free Heap: %u bytes, Min Free: %u bytes\n", millis(), freeHeap, minFreeHeap);
+
+        if (audioPlayer.isConnected()) {
+            Serial.printf("[%lu] BT Connected, starting playback...\n", millis());
+            audioPlayer.playFile("/jingles/file_example_WAV_1MG.wav");
+        } else {
+            Serial.printf("[%lu] BT Not connected!\n", millis());
+        }
+    }
+
+    delay(100);
+    return;
+#endif
+
     if (settingsMode) {
         // Settings Mode: AsyncElegantOTA runs automatically
         delay(10);
@@ -285,6 +351,9 @@ void loop() {
     }
 
     if (normalMode) {
+        // Check if WiFi needs to be reconnected after playback
+        audioPlayer.checkAndReconnectWiFi();
+
         // Handle web requests
         simpleServer.handle();
 

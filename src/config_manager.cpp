@@ -76,7 +76,7 @@ uint8_t ConfigManager::getBTVolume() {
 void ConfigManager::createDefaultConfig() {
     config.clear();
 
-    config["btDevice"] = "JBL Flip 5";
+    config["btDevice"] = "T10";
     config["btVolume"] = 80;
 
     JsonArray buttons = config["buttons"].to<JsonArray>();
