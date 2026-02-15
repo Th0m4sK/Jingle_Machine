@@ -28,13 +28,14 @@ private:
 class SettingsServer {
 public:
     SettingsServer();
-    void begin(ConfigManager* mgr);
+    void begin(ConfigManager* mgr, AudioPlayer* player);  // Modified to accept AudioPlayer
     void resetTimeout();  // Reset the inactivity timer
     unsigned long getLastActivity();  // Get last activity timestamp
 
 private:
     AsyncWebServer server;
     ConfigManager* configMgr;
+    AudioPlayer* audioPlayer;  // NEW: AudioPlayer reference for BT scanning
     unsigned long lastActivityTime;
 
     void setupRoutes();

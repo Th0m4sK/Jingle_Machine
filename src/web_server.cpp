@@ -211,8 +211,9 @@ unsigned long SettingsServer::getLastActivity() {
     return lastActivityTime;
 }
 
-void SettingsServer::begin(ConfigManager* mgr) {
+void SettingsServer::begin(ConfigManager* mgr, AudioPlayer* player) {
     configMgr = mgr;
+    audioPlayer = player;
 
     Serial.println("Initializing SPIFFS...");
     if (!SPIFFS.begin(false)) {
@@ -281,12 +282,16 @@ input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 <div class="card">
 <h2>Bluetooth Configuration</h2>
 <div class="form-group">
-<label>Device Name:</label>
-<div style="display:flex;gap:10px">
-<input type="text" id="btDevice" placeholder="JBL Flip 5" style="flex:1" oninput="onBTChange()">
-<button class="btn-secondary btn-small" onclick="scanBT()">Scan</button>
-</div>
-<div id="btDevices"></div>
+<label>Current Device:</label>
+<input type="text" id="btDevice" placeholder="JBL Flip 5" style="width:100%;margin-bottom:10px" readonly>
+<label>Available Devices (scanned at boot):</label>
+<select id="btDeviceList" style="width:100%;margin-bottom:10px">
+<option value="">-- Loading devices... --</option>
+</select>
+<button id="pairBtn" class="btn-primary" onclick="pairDevice()" style="width:100%">
+Pair Selected Device
+</button>
+<div id="btScanStatus" style="margin-top:10px;font-size:0.9em;color:#888"></div>
 </div>
 <div class="form-group">
 <label>Volume (0-127):</label>
@@ -334,6 +339,7 @@ document.getElementById('btDevice').value=config.btDevice||'';
 document.getElementById('btVolume').value=config.btVolume||80;
 renderButtons();
 loadFiles();
+scanBT();
 }
 function renderButtons(){
 const html=config.buttons.map((b,i)=>`
@@ -441,22 +447,74 @@ showStatus(r.ok?'Saved!':'Error',r.ok?'#4CAF50':'#f44336');
 }
 async function scanBT(){
 keepalive();
-showStatus('Scanning for Bluetooth devices...','#2196F3');
+document.getElementById('btScanStatus').innerHTML='Loading devices scanned at boot...';
+document.getElementById('btScanStatus').style.color='#2196F3';
+console.log('[BT SCAN] Fetching /api/scan...');
 try{
 const r=await fetch('/api/scan');
+console.log('[BT SCAN] Response status:', r.status);
 const devices=await r.json();
-const html=devices.map(d=>`<div class="bt-device" onclick="selectDevice('${d.name}')">${d.name}<br><small>${d.address}</small></div>`).join('');
-document.getElementById('btDevices').innerHTML=html||'<p>No devices found. Make sure your device is in pairing mode.</p>';
-showStatus('Scan complete','#4CAF50');
+console.log('[BT SCAN] Devices received:', devices);
+const select=document.getElementById('btDeviceList');
+select.innerHTML='<option value="">-- Select a device --</option>';
+if(devices.length===0){
+document.getElementById('btScanStatus').innerHTML='No devices found at boot. Reboot in Settings Mode to scan again.';
+document.getElementById('btScanStatus').style.color='#f44336';
+console.log('[BT SCAN] No devices in response');
+return;
+}
+devices.forEach(d=>{
+console.log('[BT SCAN] Adding device:', d.name, d.address);
+const option=document.createElement('option');
+option.value=d.name;
+option.text=`${d.name} (${d.address}) RSSI: ${d.rssi}`;
+select.appendChild(option);
+});
+document.getElementById('btScanStatus').innerHTML=`${devices.length} device(s) found at boot - select one to pair`;
+document.getElementById('btScanStatus').style.color='#4CAF50';
+console.log('[BT SCAN] Success - populated dropdown');
 }catch(e){
-showStatus('Scan failed','#f44336');
+document.getElementById('btScanStatus').innerHTML='Error loading devices: '+e;
+document.getElementById('btScanStatus').style.color='#f44336';
+console.error('[BT SCAN] Error:', e);
 }
 }
-function selectDevice(name){
+async function pairDevice(){
 keepalive();
-document.getElementById('btDevice').value=name;
-document.getElementById('btDevices').innerHTML='';
-showStatus('Device selected: '+name,'#4CAF50');
+const select=document.getElementById('btDeviceList');
+const deviceName=select.value;
+if(!deviceName){
+showStatus('Please select a device first','#f44336');
+return;
+}
+document.getElementById('btScanStatus').innerHTML='Pairing... (may take up to 60 seconds)';
+document.getElementById('btScanStatus').style.color='#2196F3';
+document.getElementById('pairBtn').disabled=true;
+try{
+const r=await fetch('/api/pair',{
+method:'POST',
+headers:{'Content-Type':'application/x-www-form-urlencoded'},
+body:'deviceName='+encodeURIComponent(deviceName)
+});
+const result=await r.text();
+if(r.ok){
+document.getElementById('btDevice').value=deviceName;
+document.getElementById('btScanStatus').innerHTML='Paired successfully! Test sound played.';
+document.getElementById('btScanStatus').style.color='#4CAF50';
+showStatus('Device paired and saved','#4CAF50');
+document.getElementById('btDeviceList').style.display='none';
+document.getElementById('pairBtn').style.display='none';
+}else{
+document.getElementById('btScanStatus').innerHTML='Pairing failed: '+result;
+document.getElementById('btScanStatus').style.color='#f44336';
+showStatus('Pairing failed','#f44336');
+}
+}catch(e){
+document.getElementById('btScanStatus').innerHTML='Error: '+e;
+document.getElementById('btScanStatus').style.color='#f44336';
+}finally{
+document.getElementById('pairBtn').disabled=false;
+}
 }
 async function uploadFiles(){
 keepalive();
@@ -529,7 +587,7 @@ void SettingsServer::setupRoutes() {
     // Serve embedded HTML
     server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
         this->resetTimeout();  // Reset timeout on any request
-        request->send_P(200, "text/html", index_html);
+        request->send(200, "text/html", index_html);
     });
 
     // Debug endpoint to check SPIFFS status
@@ -638,14 +696,73 @@ void SettingsServer::setupRoutes() {
                   handleFileUpload(request, filename, index, data, len, final);
               });
 
-    // API: Scan for Bluetooth devices
-    server.on("/api/scan", HTTP_GET, [](AsyncWebServerRequest *request) {
+    // API: Get pre-scanned Bluetooth devices (scanned before WiFi started)
+    server.on("/api/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();
+
+        Serial.println("[WEB API] BT Scan results requested");
+
+        // Return pre-scanned results from global variable
+        extern std::vector<AudioPlayer::BTDevice> globalBTScanResults;
+
+        Serial.printf("[WEB API] Global scan results size: %d\n", globalBTScanResults.size());
+
+        // Build JSON response
         String json = "[";
-        // Note: Full BT scanning requires more complex implementation
-        // For now, return a placeholder that indicates scanning is in progress
-        json += "{\"name\":\"Scanning...\",\"address\":\"00:00:00:00:00:00\"}";
+        for (size_t i = 0; i < globalBTScanResults.size(); i++) {
+            if (i > 0) json += ",";
+            json += "{";
+            json += "\"name\":\"" + globalBTScanResults[i].name + "\",";
+            json += "\"address\":\"" + globalBTScanResults[i].mac + "\",";
+            json += "\"rssi\":" + String(globalBTScanResults[i].rssi);
+            json += "}";
+            Serial.printf("  [%d] %s (%s) RSSI:%d\n", i,
+                globalBTScanResults[i].name.c_str(),
+                globalBTScanResults[i].mac.c_str(),
+                globalBTScanResults[i].rssi);
+        }
         json += "]";
+
+        Serial.printf("[WEB API] JSON response: %s\n", json.c_str());
+        Serial.printf("[WEB API] Returning %d pre-scanned devices\n", globalBTScanResults.size());
         request->send(200, "application/json", json);
+    });
+
+    // API: Pair with selected device (Settings Mode only)
+    server.on("/api/pair", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();
+
+        if (!request->hasParam("deviceName", true)) {
+            request->send(400, "text/plain", "Missing deviceName parameter");
+            return;
+        }
+
+        if (!audioPlayer) {
+            request->send(500, "text/plain", "Audio player not available");
+            return;
+        }
+
+        String deviceName = request->getParam("deviceName", true)->value();
+        Serial.print("[WEB API] Pair requested with: ");
+        Serial.println(deviceName);
+
+        // Attempt pairing (60 second timeout)
+        bool success = audioPlayer->pairDevice(deviceName, 60);
+
+        if (success) {
+            Serial.println("[WEB API] Saving device name...");
+
+            // Save to config - get current config, modify it, and save it back
+            JsonDocument updatedConfig = configMgr->getConfig();
+            updatedConfig["btDevice"] = deviceName;
+            configMgr->saveConfig(updatedConfig);
+
+            Serial.println("[WEB API] Config saved - device will connect in Normal Mode");
+            request->send(200, "text/plain", "Device saved! Will connect in Normal Mode.");
+        } else {
+            Serial.println("[WEB API] Save failed");
+            request->send(500, "text/plain", "Failed to save device");
+        }
     });
 
     // API: Keepalive - reset timeout timer

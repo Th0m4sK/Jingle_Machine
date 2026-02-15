@@ -35,6 +35,9 @@ SettingsServer* settingsServer = nullptr;
 bool settingsMode = false;
 bool normalMode = false;
 
+// Global storage for BT scan results (scanned before WiFi starts)
+std::vector<AudioPlayer::BTDevice> globalBTScanResults;
+
 // Touch debounce
 unsigned long lastTouchTime = 0;
 const unsigned long touchDebounceDelay = 300;
@@ -233,6 +236,37 @@ void setup() {
         // ==================== SETTINGS MODE ====================
         Serial.println("=== STARTING IN SETTINGS MODE (30s auto-timeout) ===");
 
+        // SCAN FOR BT DEVICES FIRST (before WiFi starts)
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_CYAN);
+        tft.setTextDatum(TL_DATUM);
+        tft.drawString("BT SCAN (30s)", 10, 10, 2);
+        tft.drawString("Put speaker in pairing mode", 10, 35, 1);
+        tft.setTextColor(TFT_YELLOW);
+        tft.drawString("Scanning...", 10, 60, 2);
+
+        Serial.println("=== Pre-scanning Bluetooth devices (before WiFi) ===");
+
+        // Pass TFT pointer for debug output
+        globalBTScanResults = audioPlayer.scanForDevices(30);
+
+        // Show results on screen
+        tft.fillRect(0, 60, 320, 180, TFT_BLACK);
+        tft.setTextColor(TFT_GREEN);
+        tft.drawString("Scan complete!", 10, 60, 2);
+        tft.setTextColor(TFT_WHITE);
+        tft.drawString("Found: " + String(globalBTScanResults.size()) + " devices", 10, 85, 2);
+
+        // List found devices
+        int y = 110;
+        for (size_t i = 0; i < globalBTScanResults.size() && i < 6; i++) {
+            tft.drawString(globalBTScanResults[i].name, 10, y, 1);
+            y += 15;
+        }
+
+        Serial.printf("Found %d devices\n", globalBTScanResults.size());
+        delay(3000);
+
         setupWiFi();
 
         tft.fillScreen(TFT_BLUE);
@@ -254,7 +288,7 @@ void setup() {
 
         Serial.println("Starting SettingsServer...");
         settingsServer = new SettingsServer();
-        settingsServer->begin(&configMgr);
+        settingsServer->begin(&configMgr, &audioPlayer);
         settingsMode = true;
         Serial.println("SettingsServer started - will auto-switch to normal mode after 30s");
     } else {
