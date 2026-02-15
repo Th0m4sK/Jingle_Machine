@@ -262,6 +262,7 @@ h2{color:#fff;margin-top:0}
 .form-group{margin:15px 0}
 label{display:block;margin-bottom:5px;color:#aaa}
 input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;color:#fff;border-radius:4px;box-sizing:border-box}
+input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 .btn-primary,.btn-secondary,.btn-warning{padding:12px 24px;border:none;border-radius:4px;cursor:pointer;font-size:16px;margin:5px}
 .btn-primary{background:#4CAF50;color:#fff}
 .btn-secondary{background:#2196F3;color:#fff}
