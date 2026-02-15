@@ -254,7 +254,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jingle Machine Settings</title>
 <style>
-body{font-family:Arial;margin:0;padding:20px;background:#1a1a1a;color:#fff}
+:root{--bg-color:#1a1a1a;--text-color:#fff}
+body{font-family:Arial;margin:0;padding:20px;background:var(--bg-color);color:var(--text-color)}
 .container{max-width:900px;margin:0 auto}
 h1{color:#4CAF50;text-align:center}
 .card{background:#2a2a2a;padding:20px;margin:20px 0;border-radius:8px}
@@ -294,6 +295,17 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <button class="btn-secondary" onclick="saveBT()">Save Bluetooth</button>
 </div>
 <div class="card">
+<h2>UI Colors</h2>
+<div class="form-group">
+<label>Background Color:</label>
+<input type="color" id="uiBgColor" value="#1a1a1a" oninput="onUIColorChange()">
+</div>
+<div class="form-group">
+<label>Text Color:</label>
+<input type="color" id="uiTextColor" value="#ffffff" oninput="onUIColorChange()">
+</div>
+</div>
+<div class="card">
 <h2>Button Configuration</h2>
 <div id="buttons"></div>
 <button class="btn-secondary" onclick="saveButtons()">Save Buttons</button>
@@ -315,7 +327,23 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <div id="status" class="status"></div>
 </div>
 <script>
-let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50'},{label:'Btn2',file:'',color:'#2196F3'},{label:'Btn3',file:'',color:'#FF9800'},{label:'Btn4',file:'',color:'#F44336'},{label:'Btn5',file:'',color:'#9C27B0'},{label:'Btn6',file:'',color:'#00BCD4'},{label:'Btn7',file:'',color:'#FFEB3B'},{label:'Btn8',file:'',color:'#795548'}]};
+let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50'},{label:'Btn2',file:'',color:'#2196F3'},{label:'Btn3',file:'',color:'#FF9800'},{label:'Btn4',file:'',color:'#F44336'},{label:'Btn5',file:'',color:'#9C27B0'},{label:'Btn6',file:'',color:'#00BCD4'},{label:'Btn7',file:'',color:'#FFEB3B'},{label:'Btn8',file:'',color:'#795548'}],uiBgColor:'#1a1a1a',uiTextColor:'#ffffff'};
+function applyUIColors(){
+document.documentElement.style.setProperty('--bg-color',config.uiBgColor||'#1a1a1a');
+document.documentElement.style.setProperty('--text-color',config.uiTextColor||'#ffffff');
+}
+let uiColorTimer=null;
+function onUIColorChange(){
+keepalive();
+config.uiBgColor=document.getElementById('uiBgColor').value;
+config.uiTextColor=document.getElementById('uiTextColor').value;
+applyUIColors();
+clearTimeout(uiColorTimer);
+uiColorTimer=setTimeout(async ()=>{
+await saveConfig();
+showStatus('UI colors auto-saved','#4CAF50');
+},2000);
+}
 async function loadConfig(){
 keepalive();
 try{
@@ -327,6 +355,9 @@ if(c&&c.buttons)config=c;
 }catch(e){console.error(e);}
 document.getElementById('btDevice').value=config.btDevice||'';
 document.getElementById('btVolume').value=config.btVolume||80;
+document.getElementById('uiBgColor').value=config.uiBgColor||'#1a1a1a';
+document.getElementById('uiTextColor').value=config.uiTextColor||'#ffffff';
+applyUIColors();
 renderButtons();
 loadFiles();
 }
@@ -334,12 +365,20 @@ function renderButtons(){
 const html=config.buttons.map((b,i)=>`
 <div class="button-config">
 <div>${i+1}</div>
-<input type="text" id="label${i}" value="${b.label}" placeholder="Label" oninput="onButtonChange()">
+<input type="text" id="label${i}" value="${b.label||''}" placeholder="Label" oninput="onButtonChange()">
 <select id="file${i}" onchange="onButtonChange()"></select>
-<input type="color" id="color${i}" value="${b.color}" oninput="onButtonChange()">
+<input type="color" id="color${i}" value="${b.color||'#4CAF50'}" oninput="onButtonChange()">
 </div>`).join('');
 document.getElementById('buttons').innerHTML=html;
 loadFiles();
+}
+function updateButtonInputs(){
+for(let i=0;i<8;i++){
+const labelEl=document.getElementById('label'+i);
+const colorEl=document.getElementById('color'+i);
+if(labelEl&&config.buttons[i])labelEl.value=config.buttons[i].label||'';
+if(colorEl&&config.buttons[i])colorEl.value=config.buttons[i].color||'#4CAF50';
+}
 }
 async function loadFiles(){
 try{
@@ -445,6 +484,7 @@ if(fileEl)config.buttons[i].file=fileEl.value;
 if(colorEl)config.buttons[i].color=colorEl.value;
 }
 await saveConfig();
+updateButtonInputs();
 showStatus('Buttons auto-saved','#4CAF50');
 },2000);
 }
