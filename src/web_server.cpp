@@ -282,14 +282,14 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <div class="form-group">
 <label>Device Name:</label>
 <div style="display:flex;gap:10px">
-<input type="text" id="btDevice" placeholder="JBL Flip 5" style="flex:1">
+<input type="text" id="btDevice" placeholder="JBL Flip 5" style="flex:1" oninput="onBTChange()">
 <button class="btn-secondary btn-small" onclick="scanBT()">Scan</button>
 </div>
 <div id="btDevices"></div>
 </div>
 <div class="form-group">
 <label>Volume (0-127):</label>
-<input type="number" id="btVolume" min="0" max="127" value="80">
+<input type="number" id="btVolume" min="0" max="127" value="80" oninput="onBTChange()">
 </div>
 <button class="btn-secondary" onclick="saveBT()">Save Bluetooth</button>
 </div>
@@ -302,7 +302,7 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <h2>File Upload</h2>
 <div class="form-group">
 <label>Upload Audio Files (WAV):</label>
-<input type="file" id="fileInput" multiple accept=".wav">
+<input type="file" id="fileInput" multiple accept=".wav" onchange="keepalive()">
 <small style="color:#888">Only WAV files supported (44.1kHz, 16-bit, mono/stereo)</small>
 </div>
 <button class="btn-primary" onclick="uploadFiles()">Upload Files</button>
@@ -334,9 +334,9 @@ function renderButtons(){
 const html=config.buttons.map((b,i)=>`
 <div class="button-config">
 <div>${i+1}</div>
-<input type="text" id="label${i}" value="${b.label}" placeholder="Label">
-<select id="file${i}"></select>
-<input type="color" id="color${i}" value="${b.color}">
+<input type="text" id="label${i}" value="${b.label}" placeholder="Label" oninput="onButtonChange()">
+<select id="file${i}" onchange="onButtonChange()"></select>
+<input type="color" id="color${i}" value="${b.color}" oninput="onButtonChange()">
 </div>`).join('');
 document.getElementById('buttons').innerHTML=html;
 loadFiles();
@@ -419,6 +419,34 @@ setTimeout(()=>s.textContent='',3000);
 }
 async function keepalive(){
 try{await fetch('/api/keepalive');}catch(e){}
+}
+let btSaveTimer=null;
+let btnSaveTimer=null;
+function onBTChange(){
+keepalive();
+clearTimeout(btSaveTimer);
+btSaveTimer=setTimeout(async ()=>{
+config.btDevice=document.getElementById('btDevice').value;
+config.btVolume=parseInt(document.getElementById('btVolume').value);
+await saveConfig();
+showStatus('BT auto-saved','#4CAF50');
+},2000);
+}
+function onButtonChange(){
+keepalive();
+clearTimeout(btnSaveTimer);
+btnSaveTimer=setTimeout(async ()=>{
+for(let i=0;i<8;i++){
+const labelEl=document.getElementById('label'+i);
+const fileEl=document.getElementById('file'+i);
+const colorEl=document.getElementById('color'+i);
+if(labelEl)config.buttons[i].label=labelEl.value;
+if(fileEl)config.buttons[i].file=fileEl.value;
+if(colorEl)config.buttons[i].color=colorEl.value;
+}
+await saveConfig();
+showStatus('Buttons auto-saved','#4CAF50');
+},2000);
 }
 loadConfig();
 </script>
