@@ -307,7 +307,11 @@ input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 <small style="color:#888">Only WAV files supported (44.1kHz, 16-bit, mono/stereo)</small>
 </div>
 <button class="btn-primary" onclick="uploadFiles()">Upload Files</button>
-<div id="fileList" style="margin-top:10px"></div>
+<div class="form-group" style="margin-top:20px">
+<label>Files on SD Card:</label>
+<select id="fileList" size="8" style="height:auto"></select>
+<button class="btn-warning" onclick="deleteSelectedFile()" style="margin-top:10px">Delete Selected File</button>
+</div>
 </div>
 <div class="card">
 <a href="/update" class="btn-primary">Firmware Update</a>
@@ -386,15 +390,20 @@ sel.innerHTML='<option value="">None</option>'+files.map(f=>`<option value="/jin
 const fileList=document.getElementById('fileList');
 if(fileList){
 if(files.length){
-const html='<strong>Files on SD:</strong><br>'+files.map(f=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:5px;border-bottom:1px solid #444"><span>${f}</span><button class="btn-warning btn-small" onclick="deleteFile('${f}')">Delete</button></div>`).join('');
-fileList.innerHTML=html;
+fileList.innerHTML=files.map(f=>`<option value="${f}">${f}</option>`).join('');
 }else{
-fileList.innerHTML='<strong>Files on SD:</strong><br>No files';
+fileList.innerHTML='<option disabled>No files</option>';
 }
 }
 }catch(e){console.error(e);}
 }
-async function deleteFile(filename){
+async function deleteSelectedFile(){
+const fileList=document.getElementById('fileList');
+if(!fileList||!fileList.value){
+showStatus('No file selected','#FF9800');
+return;
+}
+const filename=fileList.value;
 if(!confirm('Delete file "'+filename+'"?'))return;
 keepalive();
 showStatus('Deleting...','#FF9800');
