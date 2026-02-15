@@ -206,37 +206,90 @@ void setup() {
     return;  // Skip rest of setup
 #endif
 
-    setupWiFi();
-
-    // ALWAYS start in settings mode (will auto-switch to normal mode after 30s timeout)
-    Serial.println("=== STARTING IN SETTINGS MODE (30s timeout) ===");
-
     // Load existing configuration
     Serial.println("Loading config from NVS...");
     configMgr.loadConfig();
 
-    tft.fillScreen(TFT_BLUE);
-    tft.setTextColor(TFT_WHITE);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("SETTINGS MODE", 160, 60, 4);
-    tft.setTextColor(TFT_YELLOW);
-    tft.drawString("Open browser:", 160, 110, 2);
-    tft.setTextColor(TFT_WHITE);
-    tft.drawString("http://" + WiFi.localIP().toString(), 160, 140, 4);
-    tft.setTextColor(TFT_CYAN);
-    tft.drawString("Auto-switch: 30s", 160, 180, 2);
+    // Check if we should start in settings mode or normal mode
+    if (configMgr.isSettingsMode()) {
+        // ==================== SETTINGS MODE ====================
+        Serial.println("=== STARTING IN SETTINGS MODE (30s auto-timeout) ===");
 
-    delay(1000);
+        setupWiFi();
 
-    Serial.println("Starting SettingsServer...");
-    settingsServer = new SettingsServer();
-    settingsServer->begin(&configMgr);
-    settingsMode = true;
+        tft.fillScreen(TFT_BLUE);
+        tft.setTextColor(TFT_WHITE);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("SETTINGS MODE", 160, 60, 4);
+        tft.setTextColor(TFT_YELLOW);
+        tft.drawString("Open browser:", 160, 110, 2);
+        tft.setTextColor(TFT_WHITE);
+        tft.drawString("http://" + WiFi.localIP().toString(), 160, 140, 4);
+        tft.setTextColor(TFT_CYAN);
+        tft.drawString("Auto-switch: 30s", 160, 180, 2);
 
-    tft.fillRect(0, 180, 320, 40, TFT_BLUE);
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("Server Ready!", 160, 200, 2);
-    Serial.println("SettingsServer started - will auto-switch to normal mode after 30s");
+        delay(1000);
+
+        Serial.println("Starting SettingsServer...");
+        settingsServer = new SettingsServer();
+        settingsServer->begin(&configMgr);
+        settingsMode = true;
+
+        tft.fillRect(0, 180, 320, 40, TFT_BLUE);
+        tft.setTextColor(TFT_GREEN);
+        tft.drawString("Server Ready!", 160, 200, 2);
+        Serial.println("SettingsServer started - will auto-switch to normal mode after 30s");
+    } else {
+        // ==================== NORMAL MODE ====================
+        Serial.println("=== STARTING IN NORMAL MODE (WiFi OFF) ===");
+
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_CYAN);
+        tft.setTextDatum(TL_DATUM);
+        tft.drawString("Normal Mode Init...", 10, 10, 2);
+
+        // Initialize buttons (display only - no touch yet)
+        tft.drawString("Loading buttons...", 10, 30, 2);
+        btnMgr.loadConfig(configMgr.getConfig());
+        btnMgr.draw();
+        tft.setTextColor(TFT_GREEN);
+        tft.drawString("Buttons OK", 10, 30, 2);
+        delay(300);
+
+        // Initialize audio player
+        tft.setTextColor(TFT_YELLOW);
+        tft.drawString("Starting audio...", 10, 50, 2);
+
+        // Get BT device name and store in a static char array to prevent string corruption
+        String btDeviceStr = configMgr.getBTDeviceName();
+        static char btDevice[32];
+        strncpy(btDevice, btDeviceStr.c_str(), 31);
+        btDevice[31] = '\0';
+
+        Serial.print("BT Device from config: ");
+        Serial.println(btDevice);
+        Serial.print("BT Volume from config: ");
+        Serial.println(configMgr.getBTVolume());
+
+        bool clearPairing = false;
+        audioPlayer.begin(btDevice, clearPairing);
+        audioPlayer.setVolume(configMgr.getBTVolume());
+        tft.setTextColor(TFT_GREEN);
+        tft.drawString("Audio OK", 10, 50, 2);
+        delay(300);
+
+        // Draw button UI
+        btnMgr.draw();
+
+        // Show status overlay
+        tft.fillRect(0, 0, 320, 25, TFT_BLACK);
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(TFT_GREEN);
+        tft.drawString(String("BT: ") + btDevice, 5, 5, 1);
+
+        normalMode = true;
+        Serial.println("Normal mode initialized (WiFi OFF for perfect audio)");
+    }
 }
 
 void switchToNormalMode() {
