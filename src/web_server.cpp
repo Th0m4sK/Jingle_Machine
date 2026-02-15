@@ -200,7 +200,15 @@ void SimpleServer::handle() {
 
 // ========== Settings Server (Settings Mode) ==========
 
-SettingsServer::SettingsServer() : server(80) {
+SettingsServer::SettingsServer() : server(80), lastActivityTime(0) {
+}
+
+void SettingsServer::resetTimeout() {
+    lastActivityTime = millis();
+}
+
+unsigned long SettingsServer::getLastActivity() {
+    return lastActivityTime;
 }
 
 void SettingsServer::begin(ConfigManager* mgr) {
@@ -402,6 +410,10 @@ s.textContent=msg;
 s.style.background=color;
 setTimeout(()=>s.textContent='',3000);
 }
+async function keepalive(){
+try{await fetch('/api/keepalive');}catch(e){}
+}
+setInterval(keepalive,5000);
 loadConfig();
 </script>
 </body></html>
@@ -409,7 +421,8 @@ loadConfig();
 
 void SettingsServer::setupRoutes() {
     // Serve embedded HTML
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    server.on("/", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();  // Reset timeout on any request
         request->send_P(200, "text/html", index_html);
     });
 
@@ -529,8 +542,15 @@ void SettingsServer::setupRoutes() {
         request->send(200, "application/json", json);
     });
 
+    // API: Keepalive - reset timeout timer
+    server.on("/api/keepalive", HTTP_GET, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();
+        request->send(200, "text/plain", "OK");
+    });
+
     // API: Exit settings mode
     server.on("/api/exit", HTTP_POST, [this](AsyncWebServerRequest *request) {
+        this->resetTimeout();
         request->send(200, "text/plain", "Exiting Settings Mode...");
         delay(500);
         configMgr->exitSettingsMode();

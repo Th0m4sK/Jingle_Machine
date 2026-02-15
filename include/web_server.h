@@ -29,10 +29,13 @@ class SettingsServer {
 public:
     SettingsServer();
     void begin(ConfigManager* mgr);
+    void resetTimeout();  // Reset the inactivity timer
+    unsigned long getLastActivity();  // Get last activity timestamp
 
 private:
     AsyncWebServer server;
     ConfigManager* configMgr;
+    unsigned long lastActivityTime;
 
     void setupRoutes();
     void handleFileUpload(AsyncWebServerRequest *request, String filename,

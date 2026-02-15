@@ -492,20 +492,22 @@ void loop() {
     if (settingsMode) {
         // Settings Mode: AsyncElegantOTA runs automatically
         // Auto-switch to normal mode after 30 seconds of inactivity
-        static unsigned long settingsModeStart = 0;
         static bool settingsModeActive = false;
         static int lastDisplayedSeconds = -1;
 
         // Initialize timer when first entering settings mode
         if (!settingsModeActive) {
-            settingsModeStart = millis();
+            if (settingsServer) {
+                settingsServer->resetTimeout();  // Initialize the activity timer
+            }
             settingsModeActive = true;
             lastDisplayedSeconds = -1;
             Serial.println("[SETTINGS] Timer started - 30s until auto-switch");
         }
 
-        // Calculate remaining seconds
-        unsigned long elapsed = millis() - settingsModeStart;
+        // Get time since last activity from server
+        unsigned long lastActivity = settingsServer ? settingsServer->getLastActivity() : millis();
+        unsigned long elapsed = millis() - lastActivity;
         int remainingSeconds = 30 - (elapsed / 1000);
         if (remainingSeconds < 0) remainingSeconds = 0;
 
@@ -520,7 +522,7 @@ void loop() {
             tft.drawString(String(remainingSeconds) + "s", 10, 10, 4);
         }
 
-        if (millis() - settingsModeStart > 30000) {  // 30 seconds timeout
+        if (elapsed > 30000) {  // 30 seconds timeout since last activity
             Serial.println("[TIMEOUT] No activity for 30s - switching to normal mode");
             settingsModeActive = false;  // Reset flag
             switchToNormalMode();
