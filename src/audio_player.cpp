@@ -98,12 +98,7 @@ bool AudioPlayer::playFile(const String& filepath) {
     // Reset audio buffers to ensure clean start
     resetAudioBuffers();
 
-    // Disconnect WiFi during playback (only if WiFi is active)
-    if (WiFi.getMode() != WIFI_MODE_NULL) {
-        Serial.println("Disconnecting WiFi for better audio quality...");
-        WiFi.disconnect(false, true);  // Don't erase config, do erase AP
-        delay(100);
-    }
+    // WiFi modem sleep is enabled permanently at startup for BT coexistence
 
     // WAV file handling
     Serial.println("Opening SD file...");
@@ -152,12 +147,7 @@ void AudioPlayer::stop() {
 
     bytesRead = 0;
 
-    // Reconnect WiFi after playback (only if WiFi was active)
-    if (WiFi.getMode() != WIFI_MODE_NULL) {
-        Serial.println("Reconnecting WiFi...");
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-        // Don't wait - let it connect in background
-    }
+    // WiFi stays in modem sleep mode permanently (required for BT)
 }
 
 bool AudioPlayer::isPlaying() {
@@ -186,34 +176,10 @@ void AudioPlayer::resetAudioBuffers() {
 }
 
 void AudioPlayer::checkAndReconnectWiFi() {
-    // Skip if WiFi not initialized
-    if (WiFi.getMode() == WIFI_MODE_NULL) {
+    // WiFi modem sleep stays enabled permanently for BT coexistence
+    // No action needed - just clear the flag
+    if (needsWiFiReconnect) {
         needsWiFiReconnect = false;
-        return;
-    }
-
-    static bool reconnecting = false;
-    static unsigned long reconnectStart = 0;
-
-    if (needsWiFiReconnect && !reconnecting) {
-        needsWiFiReconnect = false;
-        reconnecting = true;
-        reconnectStart = millis();
-
-        Serial.println("Reconnecting WiFi after playback...");
-        WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    }
-
-    // Non-blocking WiFi reconnection check
-    if (reconnecting) {
-        if (WiFi.status() == WL_CONNECTED) {
-            Serial.println("WiFi reconnected: " + WiFi.localIP().toString());
-            reconnecting = false;
-        } else if (millis() - reconnectStart > 10000) {
-            // Timeout after 10 seconds
-            Serial.println("WiFi reconnection timeout");
-            reconnecting = false;
-        }
     }
 }
 
