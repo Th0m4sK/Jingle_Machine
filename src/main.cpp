@@ -421,10 +421,19 @@ void loop() {
     if (settingsMode) {
         // Settings Mode: AsyncElegantOTA runs automatically
         // Auto-switch to normal mode after 30 seconds of inactivity
-        static unsigned long settingsModeStart = millis();
+        static unsigned long settingsModeStart = 0;
+        static bool settingsModeActive = false;
+
+        // Initialize timer when first entering settings mode
+        if (!settingsModeActive) {
+            settingsModeStart = millis();
+            settingsModeActive = true;
+            Serial.println("[SETTINGS] Timer started - 30s until auto-switch");
+        }
 
         if (millis() - settingsModeStart > 30000) {  // 30 seconds timeout
             Serial.println("[TIMEOUT] No activity for 30s - switching to normal mode");
+            settingsModeActive = false;  // Reset flag
             switchToNormalMode();
         }
 
