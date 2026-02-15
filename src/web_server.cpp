@@ -254,8 +254,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Jingle Machine Settings</title>
 <style>
-:root{--bg-color:#1a1a1a;--text-color:#fff}
-body{font-family:Arial;margin:0;padding:20px;background:var(--bg-color);color:var(--text-color)}
+:root{--bg-color:#1a1a1a}
+body{font-family:Arial;margin:0;padding:20px;background:var(--bg-color);color:#fff}
 .container{max-width:900px;margin:0 auto}
 h1{color:#4CAF50;text-align:center}
 .card{background:#2a2a2a;padding:20px;margin:20px 0;border-radius:8px}
@@ -269,7 +269,7 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 .btn-warning{background:#FF9800;color:#fff}
 .btn-small{padding:8px 16px;font-size:14px}
 .status{margin:20px 0;padding:10px;border-radius:4px;text-align:center}
-.button-config{display:grid;grid-template-columns:50px 1fr 1fr 80px;gap:10px;align-items:center;margin:10px 0}
+.button-config{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px;gap:10px;align-items:center;margin:10px 0}
 .color-preview{width:40px;height:40px;border-radius:4px;border:2px solid #444}
 #btDevices{margin-top:10px}
 .bt-device{padding:8px;margin:5px 0;background:#1a1a1a;border:1px solid #444;border-radius:4px;cursor:pointer}
@@ -300,10 +300,6 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <label>Background Color:</label>
 <input type="color" id="uiBgColor" value="#1a1a1a" oninput="onUIColorChange()">
 </div>
-<div class="form-group">
-<label>Text Color:</label>
-<input type="color" id="uiTextColor" value="#ffffff" oninput="onUIColorChange()">
-</div>
 </div>
 <div class="card">
 <h2>Button Configuration</h2>
@@ -327,21 +323,19 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <div id="status" class="status"></div>
 </div>
 <script>
-let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50'},{label:'Btn2',file:'',color:'#2196F3'},{label:'Btn3',file:'',color:'#FF9800'},{label:'Btn4',file:'',color:'#F44336'},{label:'Btn5',file:'',color:'#9C27B0'},{label:'Btn6',file:'',color:'#00BCD4'},{label:'Btn7',file:'',color:'#FFEB3B'},{label:'Btn8',file:'',color:'#795548'}],uiBgColor:'#1a1a1a',uiTextColor:'#ffffff'};
+let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50',textColor:'#FFFFFF'},{label:'Btn2',file:'',color:'#2196F3',textColor:'#FFFFFF'},{label:'Btn3',file:'',color:'#FF9800',textColor:'#000000'},{label:'Btn4',file:'',color:'#F44336',textColor:'#FFFFFF'},{label:'Btn5',file:'',color:'#9C27B0',textColor:'#FFFFFF'},{label:'Btn6',file:'',color:'#00BCD4',textColor:'#000000'},{label:'Btn7',file:'',color:'#FFEB3B',textColor:'#000000'},{label:'Btn8',file:'',color:'#795548',textColor:'#FFFFFF'}],uiBgColor:'#1a1a1a'};
 function applyUIColors(){
 document.documentElement.style.setProperty('--bg-color',config.uiBgColor||'#1a1a1a');
-document.documentElement.style.setProperty('--text-color',config.uiTextColor||'#ffffff');
 }
 let uiColorTimer=null;
 function onUIColorChange(){
 keepalive();
 config.uiBgColor=document.getElementById('uiBgColor').value;
-config.uiTextColor=document.getElementById('uiTextColor').value;
 applyUIColors();
 clearTimeout(uiColorTimer);
 uiColorTimer=setTimeout(async ()=>{
 await saveConfig();
-showStatus('UI colors auto-saved','#4CAF50');
+showStatus('UI background auto-saved','#4CAF50');
 },2000);
 }
 async function loadConfig(){
@@ -356,7 +350,6 @@ if(c&&c.buttons)config=c;
 document.getElementById('btDevice').value=config.btDevice||'';
 document.getElementById('btVolume').value=config.btVolume||80;
 document.getElementById('uiBgColor').value=config.uiBgColor||'#1a1a1a';
-document.getElementById('uiTextColor').value=config.uiTextColor||'#ffffff';
 applyUIColors();
 renderButtons();
 loadFiles();
@@ -367,7 +360,8 @@ const html=config.buttons.map((b,i)=>`
 <div>${i+1}</div>
 <input type="text" id="label${i}" value="${b.label||''}" placeholder="Label" oninput="onButtonChange()">
 <select id="file${i}" onchange="onButtonChange()"></select>
-<input type="color" id="color${i}" value="${b.color||'#4CAF50'}" oninput="onButtonChange()">
+<input type="color" id="color${i}" value="${b.color||'#4CAF50'}" title="Button Color" oninput="onButtonChange()">
+<input type="color" id="textColor${i}" value="${b.textColor||'#FFFFFF'}" title="Text Color" oninput="onButtonChange()">
 </div>`).join('');
 document.getElementById('buttons').innerHTML=html;
 loadFiles();
@@ -376,8 +370,16 @@ function updateButtonInputs(){
 for(let i=0;i<8;i++){
 const labelEl=document.getElementById('label'+i);
 const colorEl=document.getElementById('color'+i);
+const textColorEl=document.getElementById('textColor'+i);
 if(labelEl&&config.buttons[i])labelEl.value=config.buttons[i].label||'';
-if(colorEl&&config.buttons[i])colorEl.value=config.buttons[i].color||'#4CAF50';
+if(colorEl&&config.buttons[i]){
+colorEl.value=config.buttons[i].color||'#4CAF50';
+console.log('Set color'+i+' to:',colorEl.value);
+}
+if(textColorEl&&config.buttons[i]){
+textColorEl.value=config.buttons[i].textColor||'#FFFFFF';
+console.log('Set textColor'+i+' to:',textColorEl.value);
+}
 }
 }
 async function loadFiles(){
@@ -479,9 +481,17 @@ for(let i=0;i<8;i++){
 const labelEl=document.getElementById('label'+i);
 const fileEl=document.getElementById('file'+i);
 const colorEl=document.getElementById('color'+i);
+const textColorEl=document.getElementById('textColor'+i);
 if(labelEl)config.buttons[i].label=labelEl.value;
 if(fileEl)config.buttons[i].file=fileEl.value;
-if(colorEl)config.buttons[i].color=colorEl.value;
+if(colorEl){
+config.buttons[i].color=colorEl.value;
+console.log('Saved color'+i+':',colorEl.value);
+}
+if(textColorEl){
+config.buttons[i].textColor=textColorEl.value;
+console.log('Saved textColor'+i+':',textColorEl.value);
+}
 }
 await saveConfig();
 updateButtonInputs();
