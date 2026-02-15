@@ -309,7 +309,7 @@ input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 <button class="btn-primary" onclick="uploadFiles()">Upload Files</button>
 <div class="form-group" style="margin-top:20px">
 <label>Files on SD Card:</label>
-<select id="fileList" size="8" style="height:auto"></select>
+<select id="fileList"></select>
 <button class="btn-warning" onclick="deleteSelectedFile()" style="margin-top:10px">Delete Selected File</button>
 </div>
 </div>

@@ -12,6 +12,7 @@ struct Button {
     String label;
     String filepath;
     uint16_t color;
+    uint16_t textColor;
 };
 
 class ButtonManager {

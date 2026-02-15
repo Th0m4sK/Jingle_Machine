@@ -17,6 +17,7 @@ void ButtonManager::loadConfig(const JsonDocument& config) {
         buttons[idx].label = btn["label"].as<const char*>();
         buttons[idx].filepath = btn["file"].as<const char*>();
         buttons[idx].color = colorStringToRGB565(String(btn["color"].as<const char*>()));
+        buttons[idx].textColor = colorStringToRGB565(String(btn["textColor"].as<const char*>()));
         idx++;
     }
 
@@ -50,7 +51,7 @@ void ButtonManager::drawButton(int id, bool highlighted) {
     Button& btn = buttons[id];
 
     uint16_t color = highlighted ? TFT_WHITE : btn.color;
-    uint16_t textColor = highlighted ? btn.color : TFT_WHITE;
+    uint16_t textColor = highlighted ? btn.color : btn.textColor;
 
     // Draw button background
     _tft->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 5, color);
