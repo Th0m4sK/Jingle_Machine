@@ -317,6 +317,7 @@ input,select{width:100%;padding:10px;background:#1a1a1a;border:1px solid #444;co
 <script>
 let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50'},{label:'Btn2',file:'',color:'#2196F3'},{label:'Btn3',file:'',color:'#FF9800'},{label:'Btn4',file:'',color:'#F44336'},{label:'Btn5',file:'',color:'#9C27B0'},{label:'Btn6',file:'',color:'#00BCD4'},{label:'Btn7',file:'',color:'#FFEB3B'},{label:'Btn8',file:'',color:'#795548'}]};
 async function loadConfig(){
+keepalive();
 try{
 const r=await fetch('/api/config');
 if(r.ok){
@@ -356,11 +357,13 @@ if(fileList)fileList.innerHTML='<strong>Files on SD:</strong><br>'+(files.length
 }catch(e){console.error(e);}
 }
 async function saveBT(){
+keepalive();
 config.btDevice=document.getElementById('btDevice').value;
 config.btVolume=parseInt(document.getElementById('btVolume').value);
 await saveConfig();
 }
 async function saveButtons(){
+keepalive();
 for(let i=0;i<8;i++){
 config.buttons[i].label=document.getElementById('label'+i).value;
 config.buttons[i].file=document.getElementById('file'+i).value;
@@ -369,10 +372,12 @@ config.buttons[i].color=document.getElementById('color'+i).value;
 await saveConfig();
 }
 async function saveConfig(){
+keepalive();
 const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});
 showStatus(r.ok?'Saved!':'Error',r.ok?'#4CAF50':'#f44336');
 }
 async function scanBT(){
+keepalive();
 showStatus('Scanning for Bluetooth devices...','#2196F3');
 try{
 const r=await fetch('/api/scan');
@@ -385,11 +390,13 @@ showStatus('Scan failed','#f44336');
 }
 }
 function selectDevice(name){
+keepalive();
 document.getElementById('btDevice').value=name;
 document.getElementById('btDevices').innerHTML='';
 showStatus('Device selected: '+name,'#4CAF50');
 }
 async function uploadFiles(){
+keepalive();
 const files=document.getElementById('fileInput').files;
 if(!files.length){showStatus('No files selected','#f44336');return;}
 const formData=new FormData();
@@ -413,7 +420,6 @@ setTimeout(()=>s.textContent='',3000);
 async function keepalive(){
 try{await fetch('/api/keepalive');}catch(e){}
 }
-setInterval(keepalive,5000);
 loadConfig();
 </script>
 </body></html>
