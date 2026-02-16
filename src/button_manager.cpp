@@ -2,8 +2,9 @@
 #include "pin_config.h"
 
 ButtonManager::ButtonManager(TFT_eSPI* tft, XPT2046_Touchscreen* touch)
-    : _tft(tft), _touch(touch), globalRotation(0), globalBorderColor(TFT_WHITE),
-      globalBorderThickness(3), simulatedTouchEnabled(false) {
+    : _tft(tft), _touch(touch), globalRotation(DEFAULT_ROTATION),
+      globalBorderColor(DEFAULT_BORDER_COLOR), globalBorderThickness(DEFAULT_BORDER_THICKNESS),
+      simulatedTouchEnabled(false) {
 }
 
 void ButtonManager::setSimulatedTouch(bool enabled) {
@@ -11,32 +12,80 @@ void ButtonManager::setSimulatedTouch(bool enabled) {
     // No serial output to avoid audio interference
 }
 
+// Helper function implementations
+ButtonManager::Point ButtonManager::centerToTopLeft(const Button& btn) const {
+    return {btn.x - btn.w / 2, btn.y - btn.h / 2};
+}
+
+ButtonManager::ButtonBounds ButtonManager::getButtonBounds(const Button& btn) const {
+    return {
+        btn.x - btn.w / 2,  // left
+        btn.x + btn.w / 2,  // right
+        btn.y - btn.h / 2,  // top
+        btn.y + btn.h / 2   // bottom
+    };
+}
+
+bool ButtonManager::isPointInBounds(int x, int y, const ButtonBounds& bounds) const {
+    return x >= bounds.left && x <= bounds.right &&
+           y >= bounds.top && y <= bounds.bottom;
+}
+
+ButtonManager::Point ButtonManager::transformForRotation(int x, int y, int rotationDegrees) const {
+    switch(rotationDegrees) {
+        case 90:
+            return {y, (SCREEN_WIDTH - 1) - x};
+        case 180:
+            return {(SCREEN_WIDTH - 1) - x, (SCREEN_HEIGHT - 1) - y};
+        case 270:
+            return {(SCREEN_HEIGHT - 1) - y, x};
+        default:
+            return {x, y};
+    }
+}
+
+bool ButtonManager::isValidButtonId(int id) const {
+    return id >= 0 && id < MAX_BUTTONS;
+}
+
+bool ButtonManager::isValidRotation(int rotation) const {
+    return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
+}
+
+bool ButtonManager::isValidBorderThickness(int thickness) const {
+    return thickness >= 1 && thickness <= 5;
+}
+
 void ButtonManager::loadConfig(const JsonDocument& config) {
-    // Load global rotation setting
+    // Load and validate rotation
     globalRotation = config["rotation"].as<int>();
-    if (globalRotation != 0 && globalRotation != 90 && globalRotation != 180 && globalRotation != 270) {
-        globalRotation = 0;  // Default to 0 if invalid
+    if (!isValidRotation(globalRotation)) {
+        globalRotation = DEFAULT_ROTATION;
     }
 
-    // Load global border color (default: white)
+    // Load and validate border color
     String borderColorStr = config["borderColor"].as<String>();
     if (borderColorStr.length() > 0) {
         globalBorderColor = colorStringToRGB565(borderColorStr);
     } else {
-        globalBorderColor = TFT_WHITE;  // Default to white
+        globalBorderColor = DEFAULT_BORDER_COLOR;
     }
 
-    // Load global border thickness (default: 3)
+    // Load and validate border thickness
     globalBorderThickness = config["borderThickness"].as<int>();
-    if (globalBorderThickness < 1 || globalBorderThickness > 5) {
-        globalBorderThickness = 3;  // Default to 3 pixels
+    if (!isValidBorderThickness(globalBorderThickness)) {
+        globalBorderThickness = DEFAULT_BORDER_THICKNESS;
     }
 
+    // Load button configurations
     JsonVariantConst buttonArray = config["buttons"];
-
+    if (!buttonArray.is<JsonArrayConst>()) {
+        return;  // No buttons configured
+    }
     int idx = 0;
+
     for (JsonVariantConst btnVar : buttonArray.as<JsonArrayConst>()) {
-        if (idx >= 8) break;
+        if (idx >= MAX_BUTTONS) break;
 
         JsonObjectConst btn = btnVar.as<JsonObjectConst>();
         buttons[idx].id = btn["id"].as<int>();
@@ -51,17 +100,16 @@ void ButtonManager::loadConfig(const JsonDocument& config) {
 }
 
 void ButtonManager::calculateButtonLayout() {
-    const int margin = 5;
-    const int buttonWidth = (SCREEN_WIDTH - 5 * margin) / 4;
-    const int buttonHeight = (SCREEN_HEIGHT - 3 * margin) / 2;
+    const int buttonWidth = (SCREEN_WIDTH - (BUTTON_GRID_COLS + 1) * BUTTON_MARGIN) / BUTTON_GRID_COLS;
+    const int buttonHeight = (SCREEN_HEIGHT - (BUTTON_GRID_ROWS + 1) * BUTTON_MARGIN) / BUTTON_GRID_ROWS;
 
-    for (int i = 0; i < 8; i++) {
-        int row = i / 4;
-        int col = i % 4;
+    for (int i = 0; i < MAX_BUTTONS; i++) {
+        int row = i / BUTTON_GRID_COLS;
+        int col = i % BUTTON_GRID_COLS;
 
         // Calculate top-left corner
-        int topLeftX = margin + col * (buttonWidth + margin);
-        int topLeftY = margin + row * (buttonHeight + margin);
+        int topLeftX = BUTTON_MARGIN + col * (buttonWidth + BUTTON_MARGIN);
+        int topLeftY = BUTTON_MARGIN + row * (buttonHeight + BUTTON_MARGIN);
 
         // Store CENTER position (x, y = center of button)
         buttons[i].x = topLeftX + buttonWidth / 2;
@@ -73,7 +121,7 @@ void ButtonManager::calculateButtonLayout() {
 
 void ButtonManager::draw() {
     _tft->fillScreen(TFT_BLACK);
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         // Only draw buttons that have a valid sound file assigned
         if (buttons[i].filepath.length() > 0 && buttons[i].filepath != "") {
             drawButton(i, false);
@@ -81,85 +129,81 @@ void ButtonManager::draw() {
     }
 }
 
+ButtonManager::DrawColors ButtonManager::getDrawColors(const Button& btn, bool highlighted) const {
+    if (highlighted) {
+        return {
+            TFT_WHITE,      // fill (inverted)
+            btn.color,      // border (button color)
+            btn.color       // text (button color)
+        };
+    } else {
+        return {
+            btn.color,           // fill (button color)
+            globalBorderColor,   // border (global setting)
+            btn.textColor        // text (button text color)
+        };
+    }
+}
+
+void ButtonManager::drawButtonBorder(const Point& topLeft, int width, int height,
+                                    uint16_t borderColor, int thickness) {
+    for (int i = 0; i < thickness; i++) {
+        int cornerRadius = max(1, BUTTON_CORNER_RADIUS - i);
+        _tft->drawRoundRect(
+            topLeft.x + i,
+            topLeft.y + i,
+            width - (i * 2),
+            height - (i * 2),
+            cornerRadius,
+            borderColor
+        );
+    }
+}
+
 void ButtonManager::drawButton(int id, bool highlighted) {
     Button& btn = buttons[id];
-
-    uint16_t color = highlighted ? TFT_WHITE : btn.color;
-    uint16_t textColor = highlighted ? btn.color : btn.textColor;
-
-    // Calculate top-left from center for drawing background
-    int topLeftX = btn.x - btn.w / 2;
-    int topLeftY = btn.y - btn.h / 2;
+    DrawColors colors = getDrawColors(btn, highlighted);
+    Point topLeft = centerToTopLeft(btn);
 
     // Draw button background
-    _tft->fillRoundRect(topLeftX, topLeftY, btn.w, btn.h, 5, color);
+    _tft->fillRoundRect(topLeft.x, topLeft.y, btn.w, btn.h,
+                       BUTTON_CORNER_RADIUS, colors.fill);
 
-    // Draw border with global border color and thickness
-    uint16_t borderColor = highlighted ? btn.color : globalBorderColor;
-    for (int i = 0; i < globalBorderThickness; i++) {
-        int cornerRadius = 5 - i;
-        if (cornerRadius < 1) cornerRadius = 1;
-        _tft->drawRoundRect(topLeftX + i, topLeftY + i, btn.w - (i * 2), btn.h - (i * 2), cornerRadius, borderColor);
-    }
+    // Draw border
+    drawButtonBorder(topLeft, btn.w, btn.h, colors.border, globalBorderThickness);
 
-    // Draw text at center with rotation
-    drawButtonText(id, btn.label, textColor, color);
+    // Draw text
+    drawButtonText(id, btn.label, colors.text, colors.fill);
+}
+
+void ButtonManager::renderText(const String& text, int x, int y, uint16_t color) {
+    _tft->setTextColor(color);
+    _tft->setTextDatum(MC_DATUM);
+    _tft->setTextSize(TEXT_SIZE);
+    _tft->drawString(text, x, y, TEXT_FONT);
 }
 
 void ButtonManager::drawButtonText(int id, const String& text, uint16_t textColor, uint16_t bgColor) {
     Button& btn = buttons[id];
-
-    // Button center in current rotation coordinates
     int centerX = btn.x;
     int centerY = btn.y;
 
-    // For 0° rotation (no rotation), draw directly
+    // No rotation - draw directly
     if (globalRotation == 0) {
-        _tft->setTextColor(textColor);
-        _tft->setTextDatum(MC_DATUM);
-        _tft->setTextSize(1);
-        _tft->drawString(text, centerX, centerY, 2);
+        renderText(text, centerX, centerY, textColor);
         return;
     }
 
-    // Save current rotation
+    // Rotated text
     uint8_t savedRotation = _tft->getRotation();
-
-    // Calculate target rotation (0=portrait, 1=landscape, 2=portrait-inv, 3=landscape-inv)
-    // Current is rotation 1 (landscape 320x240)
-    // globalRotation is in degrees: 0, 90, 180, 270
     uint8_t targetRotation = (savedRotation + (globalRotation / 90)) % 4;
 
-    // Transform coordinates from current rotation to target rotation
-    int transformedX, transformedY;
+    // Transform coordinates for the rotated display
+    Point transformed = transformForRotation(centerX, centerY, globalRotation);
 
-    if (globalRotation == 90) {
-        // Rotation 1 → 2 (landscape → portrait-inverted): 90° clockwise
-        // (x, y) in 320x240 → (y, 319-x) in 240x320
-        transformedX = centerY;
-        transformedY = 319 - centerX;
-    } else if (globalRotation == 180) {
-        // Rotation 1 → 3 (landscape → landscape-inverted): 180°
-        // (x, y) in 320x240 → (319-x, 239-y) in 320x240
-        transformedX = 319 - centerX;
-        transformedY = 239 - centerY;
-    } else { // globalRotation == 270
-        // Rotation 1 → 0 (landscape → portrait): 270° clockwise (90° counter-clockwise)
-        // (x, y) in 320x240 → (239-y, x) in 240x320
-        transformedX = 239 - centerY;
-        transformedY = centerX;
-    }
-
-    // Set new rotation for text
+    // Draw text in rotated coordinate system
     _tft->setRotation(targetRotation);
-
-    // Draw text at transformed coordinates
-    _tft->setTextColor(textColor);
-    _tft->setTextDatum(MC_DATUM);
-    _tft->setTextSize(1);
-    _tft->drawString(text, transformedX, transformedY, 2);
-
-    // Restore original rotation
+    renderText(text, transformed.x, transformed.y, textColor);
     _tft->setRotation(savedRotation);
 }
 
@@ -176,26 +220,19 @@ int ButtonManager::checkTouch() {
 
     TS_Point p = _touch->getPoint();
 
-    if (p.z < 200) {  // Pressure threshold - no touch if below
+    if (p.z < TOUCH_PRESSURE_THRESHOLD) {  // Pressure threshold - no touch if below
         return -1;
     }
 
     // Map touch coordinates to screen coordinates (landscape mode)
     // CYD typical calibration (may need adjustment)
-    int x = map(p.x, 200, 3700, 0, SCREEN_WIDTH);
-    int y = map(p.y, 240, 3800, 0, SCREEN_HEIGHT);
+    int x = map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 0, SCREEN_WIDTH);
+    int y = map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_HEIGHT);
 
     // Check which button was pressed
-    for (int i = 0; i < 8; i++) {
-        Button& btn = buttons[i];
-
-        // Calculate bounds from center
-        int left = btn.x - btn.w / 2;
-        int right = btn.x + btn.w / 2;
-        int top = btn.y - btn.h / 2;
-        int bottom = btn.y + btn.h / 2;
-
-        if (x >= left && x <= right && y >= top && y <= bottom) {
+    for (int i = 0; i < MAX_BUTTONS; i++) {
+        ButtonBounds bounds = getButtonBounds(buttons[i]);
+        if (isPointInBounds(x, y, bounds)) {
             return i;
         }
     }
@@ -207,7 +244,7 @@ int ButtonManager::checkSimulatedTouch() {
     // Generate random touch events for testing (without real hardware)
     // Simulate occasional random touches - NO SERIAL OUTPUT to avoid audio interference
     static unsigned long lastSimTouch = 0;
-    static int nextTouchDelay = random(5000, 10000);  // Slower: 5-10 seconds between touches
+    static int nextTouchDelay = random(SIM_TOUCH_MIN_DELAY, SIM_TOUCH_MAX_DELAY);
 
     if (millis() - lastSimTouch < nextTouchDelay) {
         return -1;  // No touch yet
@@ -215,25 +252,19 @@ int ButtonManager::checkSimulatedTouch() {
 
     // Time for a simulated touch!
     lastSimTouch = millis();
-    nextTouchDelay = random(5000, 10000);  // Next touch in 5-10 seconds
+    nextTouchDelay = random(SIM_TOUCH_MIN_DELAY, SIM_TOUCH_MAX_DELAY);
 
     // Generate random screen coordinates
     int x = random(0, SCREEN_WIDTH);
     int y = random(0, SCREEN_HEIGHT);
 
     // Check which button was pressed (if any)
-    for (int i = 0; i < 8; i++) {
-        Button& btn = buttons[i];
+    for (int i = 0; i < MAX_BUTTONS; i++) {
         // Only check visible buttons (those with files)
-        if (btn.filepath.length() == 0) continue;
+        if (buttons[i].filepath.length() == 0) continue;
 
-        // Calculate bounds from center
-        int left = btn.x - btn.w / 2;
-        int right = btn.x + btn.w / 2;
-        int top = btn.y - btn.h / 2;
-        int bottom = btn.y + btn.h / 2;
-
-        if (x >= left && x <= right && y >= top && y <= bottom) {
+        ButtonBounds bounds = getButtonBounds(buttons[i]);
+        if (isPointInBounds(x, y, bounds)) {
             return i;  // Button hit - no debug output to avoid blocking audio
         }
     }
@@ -242,7 +273,7 @@ int ButtonManager::checkSimulatedTouch() {
 }
 
 void ButtonManager::highlightButton(int id) {
-    if (id < 0 || id >= 8) return;
+    if (!isValidButtonId(id)) return;
 
     drawButton(id, true);
     delay(200);
@@ -250,7 +281,7 @@ void ButtonManager::highlightButton(int id) {
 }
 
 String ButtonManager::getButtonFile(int id) {
-    if (id < 0 || id >= 8) return "";
+    if (!isValidButtonId(id)) return "";
     return buttons[id].filepath;
 }
 
