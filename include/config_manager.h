@@ -18,6 +18,7 @@ public:
     bool isSettingsMode();
     void enterSettingsMode();
     void exitSettingsMode();
+    void clearSettingsModeFlag();  // Clear flag without restarting
 
     String getButtonFile(int id);
     String getBTDeviceName();

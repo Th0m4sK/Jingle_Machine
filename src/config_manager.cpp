@@ -51,6 +51,11 @@ void ConfigManager::exitSettingsMode() {
     ESP.restart();
 }
 
+void ConfigManager::clearSettingsModeFlag() {
+    prefs.putBool("settings_mode", false);
+    Serial.println("Settings mode flag cleared (no restart)");
+}
+
 String ConfigManager::getButtonFile(int id) {
     if (id < 0 || id >= 8) {
         return "";

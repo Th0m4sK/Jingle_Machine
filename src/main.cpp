@@ -15,6 +15,9 @@
 // Test mode - loop playback without WiFi
 #define TEST_MODE_LOOP 0
 
+// Test mode - cycle through rotations (0, 90, 180, 270)
+#define TEST_MODE_ROTATION 0
+
 // Hardware objects
 TFT_eSPI tft = TFT_eSPI();
 
@@ -219,12 +222,15 @@ void setup() {
     Serial.print("Reset reason: ");
     Serial.println(resetReason);
 
-    // DEBUGGING: Always start in normal mode for faster testing
-    bool startInSettingsMode = false;
-    Serial.println("DEBUG MODE: Starting in Normal Mode (no settings mode)");
+    // Check if we just rebooted due to BT timeout (flag set)
+    bool wasTimeoutReboot = configMgr.isSettingsMode();
 
-    // Check if we should start in settings mode or normal mode
-    if (startInSettingsMode) {
+    if (wasTimeoutReboot) {
+        // We rebooted after BT timeout - go to settings mode
+        Serial.println("=== BT TIMEOUT REBOOT - ENTERING SETTINGS MODE ===");
+
+        // CRITICAL: Clear flag immediately so next boot tries normal mode (without restarting)
+        configMgr.clearSettingsModeFlag();
         // ==================== SETTINGS MODE ====================
         Serial.println("=== STARTING IN SETTINGS MODE (30s auto-timeout) ===");
 
@@ -259,16 +265,25 @@ void setup() {
         Serial.printf("Found %d devices\n", globalBTScanResults.size());
         delay(3000);
 
-        setupWiFi();
+        // Start WiFi AP mode directly (no STA mode)
+        Serial.println("Starting WiFi AP...");
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP("jinglebox", "jingle1234");
+        delay(1000);  // Give AP time to start
+
+        IPAddress IP = WiFi.softAPIP();
+        Serial.print("AP IP address: ");
+        Serial.println(IP);
 
         tft.fillScreen(TFT_BLUE);
         tft.setTextColor(TFT_WHITE);
         tft.setTextDatum(MC_DATUM);
         tft.drawString("SETTINGS MODE", 160, 60, 4);
         tft.setTextColor(TFT_YELLOW);
-        tft.drawString("Open browser:", 160, 110, 2);
+        tft.drawString("WiFi: jinglebox", 160, 100, 2);
+        tft.drawString("Password: jingle1234", 160, 120, 2);
         tft.setTextColor(TFT_WHITE);
-        tft.drawString("http://" + WiFi.localIP().toString(), 160, 140, 4);
+        tft.drawString("http://192.168.4.1", 160, 160, 4);
 
         // Draw "Leave" button
         tft.fillRoundRect(110, 170, 100, 50, 8, TFT_RED);
@@ -282,17 +297,17 @@ void setup() {
         settingsServer = new SettingsServer();
         settingsServer->begin(&configMgr, &audioPlayer);
         settingsMode = true;
-        Serial.println("SettingsServer started - will auto-switch to normal mode after 30s");
+        Serial.println("SettingsServer started - NO AUTO-TIMEOUT");
     } else {
-        // ==================== NORMAL MODE ====================
-        Serial.println("=== STARTING IN NORMAL MODE (WiFi OFF) ===");
+        // ==================== NORMAL MODE ATTEMPT (ALWAYS FIRST) ====================
+        Serial.println("=== NORMAL MODE - Waiting for BT (30s timeout) ===");
 
-        // Show "Waiting for Bluetooth" immediately
+        // Show "Waiting for Bluetooth" with countdown
         tft.fillScreen(TFT_BLACK);
         tft.setTextDatum(MC_DATUM);
         tft.setTextColor(TFT_ORANGE);
-        tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
-        tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
+        tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 40, 4);
+        tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 4);
 
         // Initialize buttons (no display yet)
         btnMgr.loadConfig(configMgr.getConfig());
@@ -312,19 +327,56 @@ void setup() {
         audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
         audioPlayer.setVolume(configMgr.getBTVolume());
 
-        normalMode = true;
-        Serial.println("Normal mode initialized (WiFi OFF for perfect audio)");
+        // Wait up to 30 seconds for BT connection
+        unsigned long btWaitStart = millis();
+        const unsigned long BT_TIMEOUT_MS = 30000;  // 30 seconds
+        bool btConnected = false;
 
-        // Enable simulated touch (slower, no serial debug to avoid audio interference)
-        btnMgr.setSimulatedTouch(true);
+        while (millis() - btWaitStart < BT_TIMEOUT_MS) {
+            if (audioPlayer.isConnected()) {
+                btConnected = true;
+                Serial.println("[BT] Connected!");
+                break;
+            }
 
-        // Check initial BT connection state and show appropriate screen
-        delay(500);  // Give BT a moment to establish connection
-        if (audioPlayer.isConnected()) {
-            Serial.println("[BT] Connected on startup - showing buttons");
+            // Update countdown on screen
+            int remaining = (BT_TIMEOUT_MS - (millis() - btWaitStart)) / 1000;
+            tft.fillRect(0, SCREEN_HEIGHT/2 + 40, SCREEN_WIDTH, 40, TFT_BLACK);
+            tft.setTextColor(TFT_YELLOW);
+            tft.drawString(String(remaining) + "s", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 50, 4);
+
+            delay(500);
+        }
+
+        if (btConnected) {
+            // BT connected - enter normal mode
+            normalMode = true;
+            Serial.println("Normal mode activated (WiFi OFF for perfect audio)");
+
+            // Enable simulated touch (slower, no serial debug to avoid audio interference)
+            btnMgr.setSimulatedTouch(true);
+
+            // Show buttons
+            Serial.println("[BT] Showing buttons");
             btnMgr.draw();
         } else {
-            Serial.println("[BT] Not connected on startup - keeping wait screen");
+            // BT timeout - set flag and restart for settings mode
+            Serial.println("[BT] Connection timeout - switching to Settings Mode");
+
+            tft.fillScreen(TFT_BLACK);
+            tft.setTextColor(TFT_RED);
+            tft.setTextDatum(MC_DATUM);
+            tft.drawString("No Bluetooth!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+            tft.setTextColor(TFT_YELLOW);
+            tft.drawString("Restarting for Settings...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 2);
+
+            // Set flag to enter settings mode on next boot
+            configMgr.enterSettingsMode();
+            delay(2000);
+
+            // RESTART to get clean state for BT scanning
+            Serial.println("Restarting ESP32 for clean BT scan...");
+            ESP.restart();
         }
     }
 }
@@ -339,20 +391,23 @@ void switchToNormalMode() {
     }
     settingsMode = false;
 
+    // CRITICAL: Clear settings mode flag so next boot goes to normal mode
+    configMgr.exitSettingsMode();
+
     // Disable WiFi completely for better audio
     Serial.println("Disabling WiFi...");
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
     delay(500);
 
-    // Show "Waiting for Bluetooth" immediately
+    // Show "Waiting for Bluetooth" with countdown
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(TFT_ORANGE);
-    tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
-    tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
+    tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 40, 4);
+    tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2, 4);
 
-    // Load configuration and initialize buttons (no display yet)
+    // Load configuration and initialize buttons
     btnMgr.loadConfig(configMgr.getConfig());
 
     // Initialize audio player
@@ -366,24 +421,53 @@ void switchToNormalMode() {
     Serial.print("BT Volume from config: ");
     Serial.println(configMgr.getBTVolume());
 
-    // Clear old pairing to force fresh discovery (set to false after first successful pairing)
     bool clearPairing = false;
     audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
     audioPlayer.setVolume(configMgr.getBTVolume());
 
-    normalMode = true;
-    Serial.println("Normal mode initialized (WiFi OFF for perfect audio)");
+    // Wait up to 30 seconds for BT connection
+    unsigned long btWaitStart = millis();
+    const unsigned long BT_TIMEOUT_MS = 30000;  // 30 seconds
+    bool btConnected = false;
 
-    // Enable simulated touch (slower, no serial debug to avoid audio interference)
-    btnMgr.setSimulatedTouch(true);
+    while (millis() - btWaitStart < BT_TIMEOUT_MS) {
+        if (audioPlayer.isConnected()) {
+            btConnected = true;
+            Serial.println("[BT] Connected!");
+            break;
+        }
 
-    // Check initial BT connection state and show appropriate screen
-    delay(500);  // Give BT a moment to establish connection
-    if (audioPlayer.isConnected()) {
-        Serial.println("[BT] Connected on startup - showing buttons");
+        // Update countdown on screen
+        int remaining = (BT_TIMEOUT_MS - (millis() - btWaitStart)) / 1000;
+        tft.fillRect(0, SCREEN_HEIGHT/2 + 40, SCREEN_WIDTH, 40, TFT_BLACK);
+        tft.setTextColor(TFT_YELLOW);
+        tft.drawString(String(remaining) + "s", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 50, 4);
+
+        delay(500);
+    }
+
+    if (btConnected) {
+        // BT connected - enter normal mode
+        normalMode = true;
+        Serial.println("Normal mode activated (WiFi OFF for perfect audio)");
+
+        // Enable simulated touch
+        btnMgr.setSimulatedTouch(true);
+
+        // Show buttons
+        Serial.println("[BT] Showing buttons");
         btnMgr.draw();
     } else {
-        Serial.println("[BT] Not connected on startup - keeping wait screen");
+        // BT timeout - restart to try again
+        Serial.println("[BT] Connection timeout after settings - restarting...");
+        tft.fillScreen(TFT_BLACK);
+        tft.setTextColor(TFT_RED);
+        tft.setTextDatum(MC_DATUM);
+        tft.drawString("No Bluetooth!", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+        tft.setTextColor(TFT_YELLOW);
+        tft.drawString("Restarting...", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 2);
+        delay(3000);
+        ESP.restart();
     }
 }
 
@@ -467,6 +551,76 @@ void oldNormalModeCodeRemoved() {
 }
 
 void loop() {
+#if TEST_MODE_ROTATION
+    // Test mode - cycle through all rotations every 3 seconds
+    static unsigned long lastRotationChange = 0;
+    static int rotationIndex = 0;
+    static const int rotations[] = {0, 90, 180, 270};
+    static const int numRotations = 4;
+
+    if (millis() - lastRotationChange > 3000) {  // Change every 3 seconds
+        lastRotationChange = millis();
+
+        // Get current rotation
+        int currentRotation = rotations[rotationIndex];
+
+        Serial.printf("\n=== Testing Rotation: %d° ===\n", currentRotation);
+
+        // Update config with new rotation
+        JsonDocument doc;
+        doc["rotation"] = currentRotation;
+        doc["borderColor"] = "#FFFFFF";
+        doc["borderThickness"] = 3;
+
+        // Add sample buttons
+        JsonArray buttons = doc["buttons"].to<JsonArray>();
+
+        JsonObject btn0 = buttons.add<JsonObject>();
+        btn0["id"] = 0;
+        btn0["label"] = "Test 0°";
+        btn0["file"] = "/jingles/test.wav";
+        btn0["color"] = "#FF0000";
+        btn0["textColor"] = "#FFFFFF";
+
+        JsonObject btn1 = buttons.add<JsonObject>();
+        btn1["id"] = 1;
+        btn1["label"] = "Test 90°";
+        btn1["file"] = "/jingles/test.wav";
+        btn1["color"] = "#00FF00";
+        btn1["textColor"] = "#000000";
+
+        JsonObject btn2 = buttons.add<JsonObject>();
+        btn2["id"] = 2;
+        btn2["label"] = "Test 180°";
+        btn2["file"] = "/jingles/test.wav";
+        btn2["color"] = "#0000FF";
+        btn2["textColor"] = "#FFFFFF";
+
+        JsonObject btn3 = buttons.add<JsonObject>();
+        btn3["id"] = 3;
+        btn3["label"] = "Test 270°";
+        btn3["file"] = "/jingles/test.wav";
+        btn3["color"] = "#FFFF00";
+        btn3["textColor"] = "#000000";
+
+        // Load config and draw
+        btnMgr.loadConfig(doc);
+        btnMgr.draw();
+
+        // Show rotation info on screen
+        tft.fillRect(0, 0, 150, 30, TFT_BLACK);
+        tft.setTextColor(TFT_CYAN);
+        tft.setTextDatum(TL_DATUM);
+        tft.drawString("Rotation: " + String(currentRotation) + "°", 10, 10, 2);
+
+        // Move to next rotation
+        rotationIndex = (rotationIndex + 1) % numRotations;
+    }
+
+    delay(100);
+    return;
+#endif
+
 #if TEST_MODE_LOOP
     // Test mode - loop playback every 10 seconds
     static unsigned long lastPlay = 0;
@@ -497,43 +651,7 @@ void loop() {
 
     if (settingsMode) {
         // Settings Mode: AsyncElegantOTA runs automatically
-        // Auto-switch to normal mode after 30 seconds of inactivity
-        static bool settingsModeActive = false;
-        static int lastDisplayedSeconds = -1;
-
-        // Initialize timer when first entering settings mode
-        if (!settingsModeActive) {
-            if (settingsServer) {
-                settingsServer->resetTimeout();  // Initialize the activity timer
-            }
-            settingsModeActive = true;
-            lastDisplayedSeconds = -1;
-            Serial.println("[SETTINGS] Timer started - 30s until auto-switch");
-        }
-
-        // Get time since last activity from server
-        unsigned long lastActivity = settingsServer ? settingsServer->getLastActivity() : millis();
-        unsigned long elapsed = millis() - lastActivity;
-        int remainingSeconds = 30 - (elapsed / 1000);
-        if (remainingSeconds < 0) remainingSeconds = 0;
-
-        // Update display every second
-        if (remainingSeconds != lastDisplayedSeconds) {
-            lastDisplayedSeconds = remainingSeconds;
-
-            // Clear countdown area and redraw
-            tft.fillRect(0, 0, 60, 30, TFT_BLUE);
-            tft.setTextDatum(TL_DATUM);
-            tft.setTextColor(TFT_WHITE);
-            tft.drawString(String(remainingSeconds) + "s", 10, 10, 4);
-        }
-
-        if (elapsed > 30000) {  // 30 seconds timeout since last activity
-            Serial.println("[TIMEOUT] No activity for 30s - switching to normal mode");
-            settingsModeActive = false;  // Reset flag
-            switchToNormalMode();
-        }
-
+        // NO AUTO-TIMEOUT - stays in settings mode until user exits
         delay(10);
         return;
     }
