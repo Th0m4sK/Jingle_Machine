@@ -2,7 +2,8 @@
 #include "pin_config.h"
 
 ButtonManager::ButtonManager(TFT_eSPI* tft, XPT2046_Touchscreen* touch)
-    : _tft(tft), _touch(touch), globalRotation(0), simulatedTouchEnabled(false) {
+    : _tft(tft), _touch(touch), globalRotation(0), globalBorderColor(TFT_WHITE),
+      globalBorderThickness(3), simulatedTouchEnabled(false) {
 }
 
 void ButtonManager::setSimulatedTouch(bool enabled) {
@@ -15,6 +16,20 @@ void ButtonManager::loadConfig(const JsonDocument& config) {
     globalRotation = config["rotation"].as<int>();
     if (globalRotation != 0 && globalRotation != 90 && globalRotation != 180 && globalRotation != 270) {
         globalRotation = 0;  // Default to 0 if invalid
+    }
+
+    // Load global border color (default: white)
+    String borderColorStr = config["borderColor"].as<String>();
+    if (borderColorStr.length() > 0) {
+        globalBorderColor = colorStringToRGB565(borderColorStr);
+    } else {
+        globalBorderColor = TFT_WHITE;  // Default to white
+    }
+
+    // Load global border thickness (default: 3)
+    globalBorderThickness = config["borderThickness"].as<int>();
+    if (globalBorderThickness < 1 || globalBorderThickness > 5) {
+        globalBorderThickness = 3;  // Default to 3 pixels
     }
 
     JsonVariantConst buttonArray = config["buttons"];
@@ -76,9 +91,16 @@ void ButtonManager::drawButton(int id, bool highlighted) {
     int topLeftX = btn.x - btn.w / 2;
     int topLeftY = btn.y - btn.h / 2;
 
-    // Draw button background and border
+    // Draw button background
     _tft->fillRoundRect(topLeftX, topLeftY, btn.w, btn.h, 5, color);
-    _tft->drawRoundRect(topLeftX, topLeftY, btn.w, btn.h, 5, textColor);
+
+    // Draw border with global border color and thickness
+    uint16_t borderColor = highlighted ? btn.color : globalBorderColor;
+    for (int i = 0; i < globalBorderThickness; i++) {
+        int cornerRadius = 5 - i;
+        if (cornerRadius < 1) cornerRadius = 1;
+        _tft->drawRoundRect(topLeftX + i, topLeftY + i, btn.w - (i * 2), btn.h - (i * 2), cornerRadius, borderColor);
+    }
 
     // Draw text at center with rotation
     drawButtonText(id, btn.label, textColor, color);

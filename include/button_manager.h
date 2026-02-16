@@ -31,6 +31,8 @@ private:
     XPT2046_Touchscreen* _touch;
     Button buttons[8];
     int globalRotation;  // Global text rotation for all buttons: 0, 90, 180, 270
+    uint16_t globalBorderColor;  // Global border color for all buttons (default: white)
+    int globalBorderThickness;  // Global border thickness in pixels (default: 3)
     bool simulatedTouchEnabled;  // Use simulated touch instead of hardware
 
     void drawButton(int id, bool highlighted = false);
