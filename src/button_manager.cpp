@@ -44,8 +44,13 @@ void ButtonManager::calculateButtonLayout() {
         int row = i / 4;
         int col = i % 4;
 
-        buttons[i].x = margin + col * (buttonWidth + margin);
-        buttons[i].y = margin + row * (buttonHeight + margin);
+        // Calculate top-left corner
+        int topLeftX = margin + col * (buttonWidth + margin);
+        int topLeftY = margin + row * (buttonHeight + margin);
+
+        // Store CENTER position (x, y = center of button)
+        buttons[i].x = topLeftX + buttonWidth / 2;
+        buttons[i].y = topLeftY + buttonHeight / 2;
         buttons[i].w = buttonWidth;
         buttons[i].h = buttonHeight;
     }
@@ -67,25 +72,73 @@ void ButtonManager::drawButton(int id, bool highlighted) {
     uint16_t color = highlighted ? TFT_WHITE : btn.color;
     uint16_t textColor = highlighted ? btn.color : btn.textColor;
 
-    // Draw button background
-    _tft->fillRoundRect(btn.x, btn.y, btn.w, btn.h, 5, color);
+    // Calculate top-left from center for drawing background
+    int topLeftX = btn.x - btn.w / 2;
+    int topLeftY = btn.y - btn.h / 2;
 
-    // Draw border
-    _tft->drawRoundRect(btn.x, btn.y, btn.w, btn.h, 5, textColor);
+    // Draw button background and border
+    _tft->fillRoundRect(topLeftX, topLeftY, btn.w, btn.h, 5, color);
+    _tft->drawRoundRect(topLeftX, topLeftY, btn.w, btn.h, 5, textColor);
 
-    // Draw label with rotation - ALWAYS use the same method for consistency
+    // Draw text at center with rotation
     drawButtonText(id, btn.label, textColor, color);
 }
 
 void ButtonManager::drawButtonText(int id, const String& text, uint16_t textColor, uint16_t bgColor) {
-    // Simple, reliable text drawing - no rotation, no sprites, no memory issues
-    int cx = buttons[id].x + buttons[id].w / 2;
-    int cy = buttons[id].y + buttons[id].h / 2;
+    Button& btn = buttons[id];
 
+    // Button center in current rotation coordinates
+    int centerX = btn.x;
+    int centerY = btn.y;
+
+    // For 0° rotation (no rotation), draw directly
+    if (globalRotation == 0) {
+        _tft->setTextColor(textColor);
+        _tft->setTextDatum(MC_DATUM);
+        _tft->setTextSize(1);
+        _tft->drawString(text, centerX, centerY, 2);
+        return;
+    }
+
+    // Save current rotation
+    uint8_t savedRotation = _tft->getRotation();
+
+    // Calculate target rotation (0=portrait, 1=landscape, 2=portrait-inv, 3=landscape-inv)
+    // Current is rotation 1 (landscape 320x240)
+    // globalRotation is in degrees: 0, 90, 180, 270
+    uint8_t targetRotation = (savedRotation + (globalRotation / 90)) % 4;
+
+    // Transform coordinates from current rotation to target rotation
+    int transformedX, transformedY;
+
+    if (globalRotation == 90) {
+        // Rotation 1 → 2 (landscape → portrait-inverted): 90° clockwise
+        // (x, y) in 320x240 → (y, 319-x) in 240x320
+        transformedX = centerY;
+        transformedY = 319 - centerX;
+    } else if (globalRotation == 180) {
+        // Rotation 1 → 3 (landscape → landscape-inverted): 180°
+        // (x, y) in 320x240 → (319-x, 239-y) in 320x240
+        transformedX = 319 - centerX;
+        transformedY = 239 - centerY;
+    } else { // globalRotation == 270
+        // Rotation 1 → 0 (landscape → portrait): 270° clockwise (90° counter-clockwise)
+        // (x, y) in 320x240 → (239-y, x) in 240x320
+        transformedX = 239 - centerY;
+        transformedY = centerX;
+    }
+
+    // Set new rotation for text
+    _tft->setRotation(targetRotation);
+
+    // Draw text at transformed coordinates
     _tft->setTextColor(textColor);
     _tft->setTextDatum(MC_DATUM);
     _tft->setTextSize(1);
-    _tft->drawString(text, cx, cy, 2);
+    _tft->drawString(text, transformedX, transformedY, 2);
+
+    // Restore original rotation
+    _tft->setRotation(savedRotation);
 }
 
 int ButtonManager::checkTouch() {
@@ -113,8 +166,14 @@ int ButtonManager::checkTouch() {
     // Check which button was pressed
     for (int i = 0; i < 8; i++) {
         Button& btn = buttons[i];
-        if (x >= btn.x && x <= btn.x + btn.w &&
-            y >= btn.y && y <= btn.y + btn.h) {
+
+        // Calculate bounds from center
+        int left = btn.x - btn.w / 2;
+        int right = btn.x + btn.w / 2;
+        int top = btn.y - btn.h / 2;
+        int bottom = btn.y + btn.h / 2;
+
+        if (x >= left && x <= right && y >= top && y <= bottom) {
             return i;
         }
     }
@@ -146,8 +205,13 @@ int ButtonManager::checkSimulatedTouch() {
         // Only check visible buttons (those with files)
         if (btn.filepath.length() == 0) continue;
 
-        if (x >= btn.x && x <= btn.x + btn.w &&
-            y >= btn.y && y <= btn.y + btn.h) {
+        // Calculate bounds from center
+        int left = btn.x - btn.w / 2;
+        int right = btn.x + btn.w / 2;
+        int top = btn.y - btn.h / 2;
+        int bottom = btn.y + btn.h / 2;
+
+        if (x >= left && x <= right && y >= top && y <= bottom) {
             return i;  // Button hit - no debug output to avoid blocking audio
         }
     }
