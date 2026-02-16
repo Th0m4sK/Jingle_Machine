@@ -77,18 +77,40 @@ private:
         uint16_t text;
     };
 
-    // Coordinate helper functions
-    Point centerToTopLeft(const Button& btn) const;
-    ButtonBounds getButtonBounds(const Button& btn) const;
-    bool isPointInBounds(int x, int y, const ButtonBounds& bounds) const;
+    // Coordinate helper functions (inline for performance)
+    inline Point centerToTopLeft(const Button& btn) const {
+        return {btn.x - btn.w / 2, btn.y - btn.h / 2};
+    }
+
+    inline ButtonBounds getButtonBounds(const Button& btn) const {
+        return {
+            btn.x - btn.w / 2,  // left
+            btn.x + btn.w / 2,  // right
+            btn.y - btn.h / 2,  // top
+            btn.y + btn.h / 2   // bottom
+        };
+    }
+
+    inline bool isPointInBounds(int x, int y, const ButtonBounds& bounds) const {
+        return x >= bounds.left && x <= bounds.right &&
+               y >= bounds.top && y <= bounds.bottom;
+    }
 
     // Rotation helper
     Point transformForRotation(int x, int y, int rotationDegrees) const;
 
-    // Validation helpers
-    bool isValidButtonId(int id) const;
-    bool isValidRotation(int rotation) const;
-    bool isValidBorderThickness(int thickness) const;
+    // Validation helpers (inline for performance)
+    inline bool isValidButtonId(int id) const {
+        return id >= 0 && id < MAX_BUTTONS;
+    }
+
+    inline bool isValidRotation(int rotation) const {
+        return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
+    }
+
+    inline bool isValidBorderThickness(int thickness) const {
+        return thickness >= 1 && thickness <= 5;
+    }
 
     DrawColors getDrawColors(const Button& btn, bool highlighted) const;
     void drawButton(int id, bool highlighted = false);

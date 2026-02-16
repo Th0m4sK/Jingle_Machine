@@ -219,17 +219,9 @@ void setup() {
     Serial.print("Reset reason: ");
     Serial.println(resetReason);
 
+    // DEBUGGING: Always start in normal mode for faster testing
     bool startInSettingsMode = false;
-
-    if (resetReason == ESP_RST_POWERON) {
-        // Power cycle - always start in settings mode
-        Serial.println("Power cycle detected - forcing Settings Mode");
-        startInSettingsMode = true;
-    } else {
-        // Software reset or other - use NVS value
-        Serial.println("Software reset - checking NVS setting");
-        startInSettingsMode = configMgr.isSettingsMode();
-    }
+    Serial.println("DEBUG MODE: Starting in Normal Mode (no settings mode)");
 
     // Check if we should start in settings mode or normal mode
     if (startInSettingsMode) {
@@ -547,6 +539,12 @@ void loop() {
     }
 
     if (normalMode) {
+        // CRITICAL: Do absolutely nothing while audio is playing to avoid interference
+        if (audioPlayer.isPlaying()) {
+            delay(10);
+            return;
+        }
+
         // Check if WiFi needs to be reconnected after playback
         audioPlayer.checkAndReconnectWiFi();
 
@@ -572,23 +570,8 @@ void loop() {
             }
         }
 
-        // Handle touch events (blocked when BT disconnected or during playback)
-        static unsigned long lastPlaybackStart = 0;
-        static bool wasPlaying = false;
-        bool isPlaying = audioPlayer.isPlaying();
-
-        // Track when playback starts
-        if (isPlaying && !wasPlaying) {
-            lastPlaybackStart = millis();
-            Serial.println("[TOUCH] Playback started - blocking touch for 500ms");
-        }
-        wasPlaying = isPlaying;
-
-        // Check if touch is allowed
-        bool touchAllowed = currentBTState &&  // BT must be connected
-                           (!isPlaying || (millis() - lastPlaybackStart > 500));  // Block during play +500ms
-
-        if (touchAllowed && millis() - lastTouchTime > touchDebounceDelay) {
+        // Handle touch events (only when NOT playing and BT is connected)
+        if (currentBTState && millis() - lastTouchTime > touchDebounceDelay) {
             int buttonId = btnMgr.checkTouch();
 
             if (buttonId >= 0) {

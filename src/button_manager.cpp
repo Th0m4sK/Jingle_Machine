@@ -12,25 +12,6 @@ void ButtonManager::setSimulatedTouch(bool enabled) {
     // No serial output to avoid audio interference
 }
 
-// Helper function implementations
-ButtonManager::Point ButtonManager::centerToTopLeft(const Button& btn) const {
-    return {btn.x - btn.w / 2, btn.y - btn.h / 2};
-}
-
-ButtonManager::ButtonBounds ButtonManager::getButtonBounds(const Button& btn) const {
-    return {
-        btn.x - btn.w / 2,  // left
-        btn.x + btn.w / 2,  // right
-        btn.y - btn.h / 2,  // top
-        btn.y + btn.h / 2   // bottom
-    };
-}
-
-bool ButtonManager::isPointInBounds(int x, int y, const ButtonBounds& bounds) const {
-    return x >= bounds.left && x <= bounds.right &&
-           y >= bounds.top && y <= bounds.bottom;
-}
-
 ButtonManager::Point ButtonManager::transformForRotation(int x, int y, int rotationDegrees) const {
     switch(rotationDegrees) {
         case 90:
@@ -42,18 +23,6 @@ ButtonManager::Point ButtonManager::transformForRotation(int x, int y, int rotat
         default:
             return {x, y};
     }
-}
-
-bool ButtonManager::isValidButtonId(int id) const {
-    return id >= 0 && id < MAX_BUTTONS;
-}
-
-bool ButtonManager::isValidRotation(int rotation) const {
-    return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
-}
-
-bool ButtonManager::isValidBorderThickness(int thickness) const {
-    return thickness >= 1 && thickness <= 5;
 }
 
 void ButtonManager::loadConfig(const JsonDocument& config) {
