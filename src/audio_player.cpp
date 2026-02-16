@@ -20,6 +20,9 @@ bool AudioPlayer::needsWiFiReconnect = false;
 static unsigned long silencePaddingStart = 0;  // Track when to start silence padding
 static const unsigned long SILENCE_PADDING_MS = 200;  // 200ms silence after WAV to prevent click
 static bool inSilencePadding = false;  // Flag to track if we're in silence padding mode
+static const unsigned long FADEIN_MS = 30;  // Fade in first 30ms of WAV to prevent click
+static unsigned long fadeInStart = 0;  // When fade-in started
+static bool inFadeIn = false;  // Flag for fade-in mode
 static const unsigned long FADEOUT_MS = 50;  // Fade out last 50ms of WAV to prevent click
 static unsigned long fadeOutStart = 0;  // When fade-out started
 static bool inFadeOut = false;  // Flag for fade-out mode
@@ -133,6 +136,8 @@ bool AudioPlayer::playFile(const String& filepath) {
     bytesRead = 44; // Skip WAV header (already read by validation)
     silencePaddingStart = 0;  // Reset silence padding timer
     inSilencePadding = false;  // Reset silence padding flag
+    inFadeIn = true;  // Enable fade-in at start
+    fadeInStart = millis();
     inFadeOut = false;  // Reset fade-out flag
     fadeOutStart = 0;
 
@@ -151,6 +156,8 @@ void AudioPlayer::stop() {
     playing = false;
     inSilencePadding = false;
     silencePaddingStart = 0;
+    inFadeIn = false;
+    fadeInStart = 0;
     inFadeOut = false;
     fadeOutStart = 0;
 
@@ -337,6 +344,20 @@ int32_t AudioPlayer::audioCallback(Frame *data, int32_t frameCount) {
                 right = audioBuf[audioBufPos + 2] | (audioBuf[audioBufPos + 3] << 8);
                 audioBufPos += 4;
                 bytesRead += 4;
+            }
+
+            // Apply fade-in at start of file to prevent click
+            if (inFadeIn) {
+                unsigned long fadeElapsed = millis() - fadeInStart;
+                if (fadeElapsed >= FADEIN_MS) {
+                    inFadeIn = false;  // Fade-in complete
+                } else {
+                    float fadeFactor = (float)fadeElapsed / (float)FADEIN_MS;
+                    fadeFactor = max(0.0f, min(1.0f, fadeFactor));  // Clamp 0-1
+
+                    left = (int16_t)((float)left * fadeFactor);
+                    right = (int16_t)((float)right * fadeFactor);
+                }
             }
 
             // Apply fade-out if we're near end of file
