@@ -295,24 +295,17 @@ void setup() {
         // ==================== NORMAL MODE ====================
         Serial.println("=== STARTING IN NORMAL MODE (WiFi OFF) ===");
 
+        // Show "Waiting for Bluetooth" immediately
         tft.fillScreen(TFT_BLACK);
-        tft.setTextColor(TFT_CYAN);
-        tft.setTextDatum(TL_DATUM);
-        tft.drawString("Normal Mode Init...", 10, 10, 2);
+        tft.setTextDatum(MC_DATUM);
+        tft.setTextColor(TFT_ORANGE);
+        tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+        tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
 
-        // Initialize buttons (display only - no touch yet)
-        tft.drawString("Loading buttons...", 10, 30, 2);
+        // Initialize buttons (no display yet)
         btnMgr.loadConfig(configMgr.getConfig());
-        btnMgr.draw();
-        tft.setTextColor(TFT_GREEN);
-        tft.drawString("Buttons OK", 10, 30, 2);
-        delay(300);
 
         // Initialize audio player
-        tft.setTextColor(TFT_YELLOW);
-        tft.drawString("Starting audio...", 10, 50, 2);
-
-        // Get BT device MAC address for connection
         String btDeviceStr = configMgr.getBTDeviceName();  // Returns MAC address
         static char btDevice[32];
         strncpy(btDevice, btDeviceStr.c_str(), 31);
@@ -326,21 +319,21 @@ void setup() {
         bool clearPairing = false;
         audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
         audioPlayer.setVolume(configMgr.getBTVolume());
-        tft.setTextColor(TFT_GREEN);
-        tft.drawString("Audio OK", 10, 50, 2);
-        delay(300);
-
-        // Draw button UI
-        btnMgr.draw();
-
-        // Show status overlay
-        tft.fillRect(0, 0, 320, 25, TFT_BLACK);
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(TFT_GREEN);
-        tft.drawString(String("BT: ") + btDevice, 5, 5, 1);
 
         normalMode = true;
         Serial.println("Normal mode initialized (WiFi OFF for perfect audio)");
+
+        // Enable simulated touch (slower, no serial debug to avoid audio interference)
+        btnMgr.setSimulatedTouch(true);
+
+        // Check initial BT connection state and show appropriate screen
+        delay(500);  // Give BT a moment to establish connection
+        if (audioPlayer.isConnected()) {
+            Serial.println("[BT] Connected on startup - showing buttons");
+            btnMgr.draw();
+        } else {
+            Serial.println("[BT] Not connected on startup - keeping wait screen");
+        }
     }
 }
 
@@ -360,32 +353,17 @@ void switchToNormalMode() {
     WiFi.mode(WIFI_OFF);
     delay(500);
 
+    // Show "Waiting for Bluetooth" immediately
     tft.fillScreen(TFT_BLACK);
-    tft.setTextColor(TFT_CYAN);
-    tft.setTextDatum(TL_DATUM);
-    tft.drawString("Normal Mode Init...", 10, 10, 2);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_ORANGE);
+    tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+    tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
 
-    // Load configuration
-    tft.drawString("Loading config...", 10, 30, 2);
-    // Config already loaded
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("Config OK", 10, 30, 2);
-    delay(300);
-
-    // Initialize buttons (display only - no touch yet)
-    tft.setTextColor(TFT_YELLOW);
-    tft.drawString("Loading buttons...", 10, 50, 2);
+    // Load configuration and initialize buttons (no display yet)
     btnMgr.loadConfig(configMgr.getConfig());
-    btnMgr.draw();
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("Buttons OK", 10, 50, 2);
-    delay(300);
 
     // Initialize audio player
-    tft.setTextColor(TFT_YELLOW);
-    tft.drawString("Starting audio...", 10, 70, 2);
-
-    // Get BT device MAC address for connection
     String btDeviceStr = configMgr.getBTDeviceName();  // Returns MAC address
     static char btDevice[32];
     strncpy(btDevice, btDeviceStr.c_str(), 31);
@@ -400,21 +378,21 @@ void switchToNormalMode() {
     bool clearPairing = false;
     audioPlayer.begin(btDevice, clearPairing);  // Connect using MAC address
     audioPlayer.setVolume(configMgr.getBTVolume());
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString("Audio OK", 10, 70, 2);
-    delay(300);
-
-    // Draw button UI
-    btnMgr.draw();
-
-    // Show status overlay
-    tft.fillRect(0, 0, 320, 25, TFT_BLACK);
-    tft.setTextDatum(TL_DATUM);
-    tft.setTextColor(TFT_GREEN);
-    tft.drawString(String("BT: ") + btDevice, 5, 5, 1);
 
     normalMode = true;
     Serial.println("Normal mode initialized (WiFi OFF for perfect audio)");
+
+    // Enable simulated touch (slower, no serial debug to avoid audio interference)
+    btnMgr.setSimulatedTouch(true);
+
+    // Check initial BT connection state and show appropriate screen
+    delay(500);  // Give BT a moment to establish connection
+    if (audioPlayer.isConnected()) {
+        Serial.println("[BT] Connected on startup - showing buttons");
+        btnMgr.draw();
+    } else {
+        Serial.println("[BT] Not connected on startup - keeping wait screen");
+    }
 }
 
 void oldNormalModeCodeRemoved() {
@@ -476,21 +454,23 @@ void oldNormalModeCodeRemoved() {
         tft.drawString("Server OK!", 10, 90, 2);
         delay(500);
 
-        // Draw button UI
-        btnMgr.draw();
-
-        // Show status overlay
-        tft.fillRect(0, 0, 320, 25, TFT_BLACK);
-        tft.setTextDatum(TL_DATUM);
-        tft.setTextColor(TFT_GREEN);
-        tft.drawString(String("BT: ") + btDevice, 5, 5, 1);
-        tft.setTextDatum(TR_DATUM);
-        tft.setTextColor(TFT_CYAN);
-        tft.drawString(WiFi.localIP().toString(), 315, 5, 1);
-
         normalMode = true;
         Serial.println("Normal mode initialized");
         Serial.println("Web UI: http://" + WiFi.localIP().toString());
+
+        // Check initial BT connection state and show appropriate screen
+        delay(500);  // Give BT a moment to establish connection
+        if (audioPlayer.isConnected()) {
+            Serial.println("[BT] Connected on startup - showing buttons");
+            btnMgr.draw();
+        } else {
+            Serial.println("[BT] Not connected on startup - showing wait screen");
+            tft.fillScreen(TFT_BLACK);
+            tft.setTextDatum(MC_DATUM);
+            tft.setTextColor(TFT_ORANGE);
+            tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+            tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
+        }
     }
 }
 
@@ -567,58 +547,64 @@ void loop() {
     }
 
     if (normalMode) {
-        // Simulate Button 1 press every 10 seconds for testing (touch screen is broken)
-        static unsigned long lastButtonSim = 0;
-        if (millis() - lastButtonSim > 10000) {
-            lastButtonSim = millis();
-            Serial.println("[TEST] Simulating Button 1 press (Button 0 in array)");
-
-            String filepath = configMgr.getButtonFile(0);
-            if (filepath.length() > 0 && SD.exists(filepath)) {
-                Serial.print("[TEST] Playing: ");
-                Serial.println(filepath);
-                audioPlayer.playFile(filepath);
-            } else {
-                Serial.println("[TEST] No file configured for Button 1");
-            }
-        }
-
         // Check if WiFi needs to be reconnected after playback
         audioPlayer.checkAndReconnectWiFi();
 
-        // Update BT connection status on display
+        // Check BT connection and show appropriate screen
         static bool lastBTState = false;
         bool currentBTState = audioPlayer.isConnected();
 
         if (currentBTState != lastBTState) {
             lastBTState = currentBTState;
 
-            tft.fillRect(0, 0, 80, 20, TFT_BLACK);
-            tft.setTextDatum(TL_DATUM);
-
             if (currentBTState) {
-                tft.setTextColor(TFT_GREEN);
-                tft.drawString("BT: OK", 5, 5, 1);
+                // BT connected - show buttons
+                Serial.println("[BT] Connected - showing buttons");
+                btnMgr.draw();
             } else {
+                // BT disconnected - show "Wait for Connect" overlay
+                Serial.println("[BT] Disconnected - showing wait screen");
+                tft.fillScreen(TFT_BLACK);
+                tft.setTextDatum(MC_DATUM);
                 tft.setTextColor(TFT_ORANGE);
-                tft.drawString("BT: DISC", 5, 5, 1);
+                tft.drawString("Waiting for", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - 20, 4);
+                tft.drawString("Bluetooth Connection", SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + 20, 4);
             }
         }
 
-        // Audio playback status feedback
-        if (audioPlayer.isPlaying()) {
-            static unsigned long lastBlink = 0;
-            static bool blinkState = false;
+        // Handle touch events (blocked when BT disconnected or during playback)
+        static unsigned long lastPlaybackStart = 0;
+        static bool wasPlaying = false;
+        bool isPlaying = audioPlayer.isPlaying();
 
-            if (millis() - lastBlink > 500) {
-                lastBlink = millis();
-                blinkState = !blinkState;
+        // Track when playback starts
+        if (isPlaying && !wasPlaying) {
+            lastPlaybackStart = millis();
+            Serial.println("[TOUCH] Playback started - blocking touch for 500ms");
+        }
+        wasPlaying = isPlaying;
 
-                tft.fillRect(290, 0, 30, 20, blinkState ? TFT_GREEN : TFT_BLACK);
-                if (blinkState) {
-                    tft.setTextColor(TFT_BLACK);
-                    tft.setTextDatum(TC_DATUM);
-                    tft.drawString("PLAY", 305, 5, 1);
+        // Check if touch is allowed
+        bool touchAllowed = currentBTState &&  // BT must be connected
+                           (!isPlaying || (millis() - lastPlaybackStart > 500));  // Block during play +500ms
+
+        if (touchAllowed && millis() - lastTouchTime > touchDebounceDelay) {
+            int buttonId = btnMgr.checkTouch();
+
+            if (buttonId >= 0) {
+                lastTouchTime = millis();
+                Serial.printf("[TOUCH] Button %d pressed\n", buttonId);
+
+                // Highlight button
+                btnMgr.highlightButton(buttonId);
+
+                // Get file and play
+                String filepath = btnMgr.getButtonFile(buttonId);
+                if (filepath.length() > 0 && SD.exists(filepath)) {
+                    Serial.printf("[PLAY] Starting: %s\n", filepath.c_str());
+                    audioPlayer.playFile(filepath);
+                } else {
+                    Serial.printf("[ERROR] No file for button %d\n", buttonId);
                 }
             }
         }

@@ -2,7 +2,12 @@
 #include "pin_config.h"
 
 ButtonManager::ButtonManager(TFT_eSPI* tft, XPT2046_Touchscreen* touch)
-    : _tft(tft), _touch(touch), globalRotation(0) {
+    : _tft(tft), _touch(touch), globalRotation(0), simulatedTouchEnabled(false) {
+}
+
+void ButtonManager::setSimulatedTouch(bool enabled) {
+    simulatedTouchEnabled = enabled;
+    // No serial output to avoid audio interference
 }
 
 void ButtonManager::loadConfig(const JsonDocument& config) {
@@ -68,88 +73,28 @@ void ButtonManager::drawButton(int id, bool highlighted) {
     // Draw border
     _tft->drawRoundRect(btn.x, btn.y, btn.w, btn.h, 5, textColor);
 
-    // Draw label with rotation
-    int centerX = btn.x + btn.w / 2;
-    int centerY = btn.y + btn.h / 2;
+    // Draw label with rotation - ALWAYS use the same method for consistency
+    drawButtonText(id, btn.label, textColor, color);
+}
+
+void ButtonManager::drawButtonText(int id, const String& text, uint16_t textColor, uint16_t bgColor) {
+    // Simple, reliable text drawing - no rotation, no sprites, no memory issues
+    int cx = buttons[id].x + buttons[id].w / 2;
+    int cy = buttons[id].y + buttons[id].h / 2;
 
     _tft->setTextColor(textColor);
     _tft->setTextDatum(MC_DATUM);
     _tft->setTextSize(1);
-
-    // For 0° rotation, draw directly (optimization)
-    if (globalRotation == 0) {
-        _tft->drawString(btn.label, centerX, centerY, 2);
-        return;
-    }
-
-    // For rotated text, use sprite-based rotation
-    // Check available heap before creating sprites
-    size_t freeHeap = ESP.getFreeHeap();
-    if (freeHeap < 20000) {  // Need at least 20KB free
-        Serial.printf("WARNING: Low memory (%d bytes), skipping rotation for button %d\n", freeHeap, id);
-        _tft->drawString(btn.label, centerX, centerY, 2);
-        return;
-    }
-
-    TFT_eSprite textSprite(_tft);
-
-    // Measure text dimensions
-    int16_t textWidth = _tft->textWidth(btn.label, 2);
-    int16_t textHeight = _tft->fontHeight(2);
-
-    // Create sprite - make it smaller to save memory
-    // Limit sprite size to reduce memory usage
-    int size = max(textWidth, textHeight) + 10;  // Reduced padding from 20 to 10
-    if (size > 100) size = 100;  // Cap at 100x100 pixels max
-
-    void* spritePtr = textSprite.createSprite(size, size);
-    if (spritePtr == nullptr) {
-        Serial.printf("ERROR: Failed to create text sprite for button %d\n", id);
-        _tft->drawString(btn.label, centerX, centerY, 2);
-        return;
-    }
-    textSprite.fillSprite(color);  // Fill with button background color
-
-    // Draw text centered in sprite
-    textSprite.setTextColor(textColor);
-    textSprite.setTextDatum(MC_DATUM);
-    textSprite.setTextSize(1);
-    textSprite.drawString(btn.label, size/2, size/2, 2);
-
-    // Create smaller destination sprite - only the text area, not entire button
-    TFT_eSprite destSprite(_tft);
-    int destSize = size + 10;  // Slightly larger for rotation
-    if (destSize > btn.w) destSize = btn.w;
-    if (destSize > btn.h) destSize = btn.h;
-
-    spritePtr = destSprite.createSprite(destSize, destSize);
-    if (spritePtr == nullptr) {
-        Serial.printf("ERROR: Failed to create dest sprite for button %d\n", id);
-        textSprite.deleteSprite();
-        _tft->drawString(btn.label, centerX, centerY, 2);
-        return;
-    }
-    destSprite.fillSprite(color);  // Fill with button background color
-
-    // Set pivot point for rotation center
-    textSprite.setPivot(size/2, size/2);
-
-    // Push rotated text sprite to destination sprite
-    // The rotation is done using TFT_eSPI's built-in sprite rotation
-    textSprite.pushRotated(&destSprite, globalRotation, color);
-
-    // Push destination sprite to screen at button center
-    int spriteX = centerX - destSize/2;
-    int spriteY = centerY - destSize/2;
-    destSprite.pushSprite(spriteX, spriteY);
-
-    // Clean up sprites
-    destSprite.deleteSprite();
-    textSprite.deleteSprite();
+    _tft->drawString(text, cx, cy, 2);
 }
 
 int ButtonManager::checkTouch() {
-    // Use tirqTouched for CYD
+    // Use simulated touch if enabled, otherwise use hardware
+    if (simulatedTouchEnabled) {
+        return checkSimulatedTouch();
+    }
+
+    // Hardware touch detection
     if (!_touch->tirqTouched() || !_touch->touched()) {
         return -1;
     }
@@ -175,6 +120,39 @@ int ButtonManager::checkTouch() {
     }
 
     return -1;
+}
+
+int ButtonManager::checkSimulatedTouch() {
+    // Generate random touch events for testing (without real hardware)
+    // Simulate occasional random touches - NO SERIAL OUTPUT to avoid audio interference
+    static unsigned long lastSimTouch = 0;
+    static int nextTouchDelay = random(5000, 10000);  // Slower: 5-10 seconds between touches
+
+    if (millis() - lastSimTouch < nextTouchDelay) {
+        return -1;  // No touch yet
+    }
+
+    // Time for a simulated touch!
+    lastSimTouch = millis();
+    nextTouchDelay = random(5000, 10000);  // Next touch in 5-10 seconds
+
+    // Generate random screen coordinates
+    int x = random(0, SCREEN_WIDTH);
+    int y = random(0, SCREEN_HEIGHT);
+
+    // Check which button was pressed (if any)
+    for (int i = 0; i < 8; i++) {
+        Button& btn = buttons[i];
+        // Only check visible buttons (those with files)
+        if (btn.filepath.length() == 0) continue;
+
+        if (x >= btn.x && x <= btn.x + btn.w &&
+            y >= btn.y && y <= btn.y + btn.h) {
+            return i;  // Button hit - no debug output to avoid blocking audio
+        }
+    }
+
+    return -1;  // No button was hit
 }
 
 void ButtonManager::highlightButton(int id) {

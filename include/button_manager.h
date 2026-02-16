@@ -22,6 +22,7 @@ public:
     void loadConfig(const JsonDocument& config);
     void draw();
     int checkTouch();
+    void setSimulatedTouch(bool enabled);  // Enable/disable simulated touch for testing
     void highlightButton(int id);
     String getButtonFile(int id);
 
@@ -30,10 +31,13 @@ private:
     XPT2046_Touchscreen* _touch;
     Button buttons[8];
     int globalRotation;  // Global text rotation for all buttons: 0, 90, 180, 270
+    bool simulatedTouchEnabled;  // Use simulated touch instead of hardware
 
     void drawButton(int id, bool highlighted = false);
+    void drawButtonText(int id, const String& text, uint16_t textColor, uint16_t bgColor);
     uint16_t colorStringToRGB565(const String& colorHex);
     void calculateButtonLayout();
+    int checkSimulatedTouch();  // Generate random touch events for testing
 };
 
 #endif
