@@ -29,6 +29,7 @@ private:
     TFT_eSPI* _tft;
     XPT2046_Touchscreen* _touch;
     Button buttons[8];
+    int globalRotation;  // Global text rotation for all buttons: 0, 90, 180, 270
 
     void drawButton(int id, bool highlighted = false);
     uint16_t colorStringToRGB565(const String& colorHex);

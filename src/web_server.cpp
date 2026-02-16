@@ -296,6 +296,15 @@ Pair Selected Device
 </div>
 <div class="card">
 <h2>Button Configuration</h2>
+<div class="form-group">
+<label>Global Text Rotation:</label>
+<select id="globalRotation" onchange="saveGlobalRotation()" style="width:200px">
+<option value="0">0° (Normal)</option>
+<option value="90">90° (Clockwise)</option>
+<option value="180">180° (Upside Down)</option>
+<option value="270">270° (Counter-Clockwise)</option>
+</select>
+</div>
 <div id="buttons"></div>
 <button class="btn-secondary" onclick="saveButtons()">Save Buttons</button>
 </div>
@@ -320,7 +329,7 @@ Pair Selected Device
 <div id="status" class="status"></div>
 </div>
 <script>
-let config={buttons:[{label:'Btn1',file:'',color:'#4CAF50',textColor:'#FFFFFF'},{label:'Btn2',file:'',color:'#2196F3',textColor:'#FFFFFF'},{label:'Btn3',file:'',color:'#FF9800',textColor:'#000000'},{label:'Btn4',file:'',color:'#F44336',textColor:'#FFFFFF'},{label:'Btn5',file:'',color:'#9C27B0',textColor:'#FFFFFF'},{label:'Btn6',file:'',color:'#00BCD4',textColor:'#000000'},{label:'Btn7',file:'',color:'#FFEB3B',textColor:'#000000'},{label:'Btn8',file:'',color:'#795548',textColor:'#FFFFFF'}]};
+let config={rotation:0,buttons:[{label:'Btn1',file:'',color:'#4CAF50',textColor:'#FFFFFF'},{label:'Btn2',file:'',color:'#2196F3',textColor:'#FFFFFF'},{label:'Btn3',file:'',color:'#FF9800',textColor:'#000000'},{label:'Btn4',file:'',color:'#F44336',textColor:'#FFFFFF'},{label:'Btn5',file:'',color:'#9C27B0',textColor:'#FFFFFF'},{label:'Btn6',file:'',color:'#00BCD4',textColor:'#000000'},{label:'Btn7',file:'',color:'#FFEB3B',textColor:'#000000'},{label:'Btn8',file:'',color:'#795548',textColor:'#FFFFFF'}]};
 async function loadConfig(){
 keepalive();
 try{
@@ -335,6 +344,7 @@ document.getElementById('btDevice').value=config.btDeviceName+' ('+config.btDevi
 }else{
 document.getElementById('btDevice').value=config.btDevice||'';
 }
+document.getElementById('globalRotation').value=config.rotation||0;
 renderButtons();
 loadFiles();
 scanBT();
@@ -560,6 +570,12 @@ await saveConfig();
 updateButtonInputs();
 showStatus('Buttons auto-saved','#4CAF50');
 },2000);
+}
+async function saveGlobalRotation(){
+keepalive();
+config.rotation=parseInt(document.getElementById('globalRotation').value)||0;
+await saveConfig();
+showStatus('Rotation saved!','#4CAF50');
 }
 loadConfig();
 </script>
