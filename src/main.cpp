@@ -26,11 +26,12 @@ SettingsServer* settingsServer = nullptr;
 
 // State machine
 enum AppState {
-    STATE_BT_FAILED,    // Show "Scan BT" / "Open Settings" buttons
-    STATE_BT_SCANNING,  // BT scan in progress (blocking)
-    STATE_BT_SELECT,    // Show scan results as touch buttons
-    STATE_NORMAL,       // Jingle buttons active
-    STATE_SETTINGS      // WiFi AP + Web UI
+    STATE_BT_FAILED,       // Show "Scan BT" / "Open Settings" buttons
+    STATE_BT_SCANNING,     // BT scan in progress (non-blocking)
+    STATE_BT_SELECT,       // Show scan results as touch buttons
+    STATE_NORMAL,          // Jingle buttons active
+    STATE_SETTINGS,        // WiFi AP + Web UI
+    STATE_QUICK_SETTINGS   // Brightness + Touch threshold overlay
 };
 AppState currentState;
 
@@ -43,7 +44,23 @@ const int DEVICES_PER_PAGE = 4;
 unsigned long lastTouchTime = 0;
 const unsigned long TOUCH_DEBOUNCE = 300;
 
+// Configurable at runtime (loaded from config)
+int touchPressureThreshold = 200;
+uint8_t displayBrightness = 200;
+
 bool sdCardAvailable = false;
+
+// ─────────────────────────────────────────────────────
+//  Brightness (PWM on TFT backlight)
+// ─────────────────────────────────────────────────────
+#define BL_PWM_CHANNEL 0
+#define BL_PWM_FREQ    5000
+#define BL_PWM_BITS    8
+
+void applyBrightness(uint8_t value) {
+    displayBrightness = value;
+    ledcWrite(BL_PWM_CHANNEL, value);
+}
 
 // ─────────────────────────────────────────────────────
 //  Touch helper – reads & maps coordinates, debounced
@@ -52,7 +69,7 @@ bool touchDebounced(int& x, int& y) {
     if (millis() - lastTouchTime < TOUCH_DEBOUNCE) return false;
     if (!touch.touched()) return false;   // tirqTouched() not used – caused false negatives
     TS_Point p = touch.getPoint();
-    if (p.z < 200) return false;
+    if (p.z < touchPressureThreshold) return false;
     x = map(p.x, 433, 3527, 0, SCREEN_WIDTH);
     y = map(p.y, 566, 3554, 0, SCREEN_HEIGHT);
     x = constrain(x, 0, SCREEN_WIDTH - 1);
@@ -325,9 +342,10 @@ void setupHardware() {
     delay(500);
     Serial.println("\n\n=== Jingle Machine Starting ===");
 
-    // Backlight
-    pinMode(TFT_BL, OUTPUT);
-    digitalWrite(TFT_BL, HIGH);
+    // Backlight – PWM so brightness is adjustable
+    ledcSetup(BL_PWM_CHANNEL, BL_PWM_FREQ, BL_PWM_BITS);
+    ledcAttachPin(TFT_BL, BL_PWM_CHANNEL);
+    ledcWrite(BL_PWM_CHANNEL, 200);  // start at default, updated after config loads
 
     // TFT
     tft.init();
@@ -391,11 +409,111 @@ void setup() {
     setupHardware();
     configMgr.loadConfig();
 
+    // Apply display + touch settings from config
+    applyBrightness(configMgr.getBrightness());
+    touchPressureThreshold = configMgr.getTouchThreshold();
+
     if (configMgr.isSettingsMode()) {
         configMgr.clearSettingsModeFlag();  // clear before booting (next boot = normal)
         bootSettingsMode();
     } else {
         handleBTConnectResult(tryBTConnect());
+    }
+}
+
+// ─────────────────────────────────────────────────────
+//  Quick Settings (brightness + touch threshold)
+// ─────────────────────────────────────────────────────
+#define QS_BAR_X    50
+#define QS_BAR_W    220
+#define QS_BTN_W    40
+
+// Draw a labeled slider row: label at labelY, bar+buttons at barY
+void drawSliderRow(const char* label, int labelY, int barY,
+                   int value, int vMin, int vMax, uint16_t color) {
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(label, 5, labelY, 2);
+
+    // [−] button
+    tft.fillRoundRect(5, barY, QS_BTN_W, 26, 4, TFT_DARKGREY);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("-", 5 + QS_BTN_W / 2, barY + 13, 2);
+
+    // bar background
+    tft.fillRect(QS_BAR_X, barY, QS_BAR_W, 26, 0x2104);
+    // bar fill
+    int fillW = map(value, vMin, vMax, 0, QS_BAR_W);
+    if (fillW > 0) tft.fillRect(QS_BAR_X, barY, fillW, 26, color);
+    // value text
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(String(value), QS_BAR_X + QS_BAR_W / 2, barY + 13, 1);
+
+    // [+] button
+    tft.fillRoundRect(SCREEN_WIDTH - 5 - QS_BTN_W, barY, QS_BTN_W, 26, 4, TFT_DARKGREY);
+    tft.drawString("+", SCREEN_WIDTH - 5 - QS_BTN_W / 2, barY + 13, 2);
+}
+
+void drawQuickSettingsScreen() {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_CYAN);
+    tft.drawString("Quick Settings", SCREEN_WIDTH / 2, 12, 2);
+
+    drawSliderRow("Brightness",       35,  55, displayBrightness,      10, 255, TFT_YELLOW);
+    drawSliderRow("Touch Sensitivity",105, 125, touchPressureThreshold, 50, 500, TFT_GREEN);
+
+    // Done button  y: 185..220
+    tft.fillRoundRect(40, 185, SCREEN_WIDTH - 80, 35, 8, TFT_BLUE);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("Done", SCREEN_WIDTH / 2, 202, 2);
+}
+
+void handleQuickSettings() {
+    int x, y;
+    if (!touchDebounced(x, y)) return;
+
+    bool changed = false;
+
+    // Helper: check if touch hit a slider row's [−] or [+]
+    auto checkSlider = [&](int barY, int& value, int vMin, int vMax, int step) {
+        if (y < barY || y > barY + 26) return;
+        if (x >= 5 && x <= 5 + QS_BTN_W) {          // [−]
+            value = max(vMin, value - step);
+            changed = true;
+        } else if (x >= SCREEN_WIDTH - 5 - QS_BTN_W) { // [+]
+            value = min(vMax, value + step);
+            changed = true;
+        }
+    };
+
+    int bright = displayBrightness;
+    int thresh = touchPressureThreshold;
+
+    checkSlider(55,  bright, 10,  255, 15);
+    checkSlider(125, thresh, 50, 500, 25);
+
+    if (changed) {
+        applyBrightness(bright);
+        touchPressureThreshold = thresh;
+
+        // Persist immediately
+        JsonDocument cfg;
+        cfg.set(configMgr.getConfig());
+        cfg["brightness"]      = displayBrightness;
+        cfg["touchThreshold"]  = touchPressureThreshold;
+        configMgr.saveConfig(cfg);
+
+        // Redraw updated sliders only
+        drawSliderRow("Brightness",       35,  55, displayBrightness,      10, 255, TFT_YELLOW);
+        drawSliderRow("Touch Sensitivity",105, 125, touchPressureThreshold, 50, 500, TFT_GREEN);
+    }
+
+    // Done button  y: 185..220
+    if (y >= 185 && y <= 220) {
+        currentState = STATE_NORMAL;
+        btnMgr.draw();
     }
 }
 
@@ -539,11 +657,29 @@ void handleNormal() {
         }
     }
 
-    // Touch → button press (with debounce)
+    // Long press (2s anywhere) → Quick Settings
+    static unsigned long holdStart = 0;
+    static bool holdActive = false;
+    if (touch.touched()) {
+        TS_Point p = touch.getPoint();
+        if (p.z >= touchPressureThreshold) {
+            if (!holdActive) { holdActive = true; holdStart = millis(); }
+            else if (millis() - holdStart > 2000) {
+                holdActive = false;
+                lastTouchTime = millis();  // suppress next tap
+                currentState = STATE_QUICK_SETTINGS;
+                drawQuickSettingsScreen();
+                return;
+            }
+        } else { holdActive = false; }
+    } else { holdActive = false; }
+
+    // Short tap → jingle button press
     if (btNow && millis() - lastTouchTime > TOUCH_DEBOUNCE) {
         int buttonId = btnMgr.checkTouch();
         if (buttonId >= 0) {
             lastTouchTime = millis();
+            holdActive = false;
             btnMgr.highlightButton(buttonId);
             String filepath = btnMgr.getButtonFile(buttonId);
             if (filepath.length() > 0 && SD.exists(filepath)) {
@@ -558,8 +694,9 @@ void loop() {
         case STATE_BT_FAILED:   handleBTFailed();   break;
         case STATE_BT_SCANNING: handleBTScanning(); break;
         case STATE_BT_SELECT:   handleBTSelect();   break;
-        case STATE_NORMAL:      handleNormal();     break;
-        case STATE_SETTINGS:    handleSettings();   break;
+        case STATE_NORMAL:         handleNormal();         break;
+        case STATE_QUICK_SETTINGS: handleQuickSettings();  break;
+        case STATE_SETTINGS:       handleSettings();       break;
         default: break;
     }
     delay(10);

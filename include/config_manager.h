@@ -24,6 +24,8 @@ public:
     String getBTDeviceName();
     String getBTDeviceMac();
     uint8_t getBTVolume();
+    uint8_t getBrightness();       // 10..255, default 200
+    int     getTouchThreshold();   // 50..500, default 200
 
 private:
     Preferences prefs;

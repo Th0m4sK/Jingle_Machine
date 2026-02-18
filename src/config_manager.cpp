@@ -78,6 +78,16 @@ String ConfigManager::getBTDeviceMac() {
     return config["btDeviceMac"].as<String>();
 }
 
+uint8_t ConfigManager::getBrightness() {
+    uint8_t v = config["brightness"].as<uint8_t>();
+    return (v < 10) ? 200 : v;
+}
+
+int ConfigManager::getTouchThreshold() {
+    int v = config["touchThreshold"].as<int>();
+    return (v < 50 || v > 500) ? 200 : v;
+}
+
 uint8_t ConfigManager::getBTVolume() {
     return config["btVolume"].as<uint8_t>();
 }
@@ -87,6 +97,8 @@ void ConfigManager::createDefaultConfig() {
 
     config["btDevice"] = "T10";
     config["btVolume"] = 80;
+    config["brightness"] = 200;
+    config["touchThreshold"] = 200;
 
     JsonArray buttons = config["buttons"].to<JsonArray>();
 
