@@ -305,7 +305,6 @@ input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 <div class="card">
 <h2>Button Configuration</h2>
 <div id="buttons"></div>
-<button class="btn-secondary" onclick="saveButtons()">Save Buttons</button>
 </div>
 <div class="card">
 <h2>File Upload</h2>
@@ -435,15 +434,6 @@ config.borderColor=document.getElementById('borderColor').value;
 config.borderThickness=parseInt(document.getElementById('borderThickness').value)||3;
 await saveConfig();
 showStatus('Display settings saved!','#4CAF50');
-}
-async function saveButtons(){
-keepalive();
-for(let i=0;i<8;i++){
-config.buttons[i].label=document.getElementById('label'+i).value;
-config.buttons[i].file=document.getElementById('file'+i).value;
-config.buttons[i].color=document.getElementById('color'+i).value;
-}
-await saveConfig();
 }
 async function saveConfig(){
 keepalive();
