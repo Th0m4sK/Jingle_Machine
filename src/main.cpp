@@ -657,34 +657,48 @@ void handleNormal() {
         }
     }
 
-    // Long press (2s anywhere) → Quick Settings
-    static unsigned long holdStart = 0;
-    static bool holdActive = false;
-    if (touch.touched()) {
-        TS_Point p = touch.getPoint();
-        if (p.z >= touchPressureThreshold) {
-            if (!holdActive) { holdActive = true; holdStart = millis(); }
-            else if (millis() - holdStart > 2000) {
-                holdActive = false;
-                lastTouchTime = millis();  // suppress next tap
-                currentState = STATE_QUICK_SETTINGS;
-                drawQuickSettingsScreen();
-                return;
-            }
-        } else { holdActive = false; }
-    } else { holdActive = false; }
+    // Touch state machine: short tap fires jingle, long press (2s) opens Quick Settings
+    // Key: record button on finger-DOWN, fire on finger-UP only if < 2s held
+    static bool fingerDown = false;
+    static unsigned long touchDownTime = 0;
+    static int pendingButtonId = -1;
 
-    // Short tap → jingle button press
-    if (btNow && millis() - lastTouchTime > TOUCH_DEBOUNCE) {
-        int buttonId = btnMgr.checkTouch();
-        if (buttonId >= 0) {
+    bool isTouching = touch.touched();
+    if (isTouching) {
+        TS_Point p = touch.getPoint();
+        if (p.z < touchPressureThreshold) isTouching = false;
+    }
+
+    if (isTouching) {
+        if (!fingerDown) {
+            // Finger just touched down – record which button is under it
+            fingerDown = true;
+            touchDownTime = millis();
+            pendingButtonId = (btNow && millis() - lastTouchTime > TOUCH_DEBOUNCE)
+                ? btnMgr.checkTouch() : -1;
+        } else if (millis() - touchDownTime >= 2000) {
+            // Long press threshold reached → Quick Settings
+            fingerDown = false;
+            pendingButtonId = -1;
             lastTouchTime = millis();
-            holdActive = false;
-            btnMgr.highlightButton(buttonId);
-            String filepath = btnMgr.getButtonFile(buttonId);
-            if (filepath.length() > 0 && SD.exists(filepath)) {
-                audioPlayer.playFile(filepath);
+            currentState = STATE_QUICK_SETTINGS;
+            drawQuickSettingsScreen();
+            return;
+        }
+        // still holding – wait
+    } else {
+        if (fingerDown) {
+            // Finger just lifted – short tap → fire the recorded button
+            fingerDown = false;
+            if (pendingButtonId >= 0) {
+                lastTouchTime = millis();
+                btnMgr.highlightButton(pendingButtonId);
+                String filepath = btnMgr.getButtonFile(pendingButtonId);
+                if (filepath.length() > 0 && SD.exists(filepath)) {
+                    audioPlayer.playFile(filepath);
+                }
             }
+            pendingButtonId = -1;
         }
     }
 }
