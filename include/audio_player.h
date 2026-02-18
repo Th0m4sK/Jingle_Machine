@@ -28,6 +28,13 @@ public:
         int rssi;
     };
 
+    // Non-blocking scan API
+    bool startScan();                        // start GAP discovery, returns immediately
+    void stopScan();                         // cancel discovery + clean up BT stack
+    bool isScanComplete();                   // true when discovery finished naturally
+    std::vector<BTDevice> getScanResults();  // snapshot of devices found so far
+
+    // Legacy blocking scan (still used internally / by web server)
     std::vector<BTDevice> scanForDevices(int timeoutSeconds = 10);
     bool pairDevice(const String& deviceName, int timeoutSeconds = 60);
     bool playTestSound();

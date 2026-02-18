@@ -580,73 +580,76 @@ bool AudioPlayer::scanCallback(const char* ssid, esp_bd_addr_t address, int rssi
     return false;
 }
 
-// Scan for Bluetooth devices using pure GAP API (Settings Mode only, no A2DP)
-std::vector<AudioPlayer::BTDevice> AudioPlayer::scanForDevices(int timeoutSeconds) {
-    Serial.println("=== Starting BT Device Scan (GAP only) ===");
+// ── Shared BT stack init/teardown helpers ────────────────────────────────────
 
+static bool btStackStart() {
+    esp_bluedroid_disable();
+    esp_bluedroid_deinit();
+    if (btStarted()) btStop();
+    delay(500);
+
+    if (!btStart()) { Serial.println("[BT SCAN] btStart failed"); return false; }
+    if (esp_bluedroid_init()   != ESP_OK) { Serial.println("[BT SCAN] bluedroid init failed"); return false; }
+    if (esp_bluedroid_enable() != ESP_OK) { Serial.println("[BT SCAN] bluedroid enable failed"); return false; }
+    return true;
+}
+
+static void btStackStop() {
+    esp_bluedroid_disable();
+    esp_bluedroid_deinit();
+}
+
+// ── Non-blocking scan API ─────────────────────────────────────────────────────
+
+bool AudioPlayer::startScan() {
+    Serial.println("=== BT Scan: startScan() ===");
     scannedDevices.clear();
     scanComplete = false;
     deviceCount = 0;
 
-    // Properly shut down A2DP library first (stops its FreeRTOS tasks)
-    // Without this, the raw BT stack reset below triggers an assert crash
-    Serial.println("[BT SCAN] Stopping A2DP source...");
+    Serial.println("[BT SCAN] Stopping A2DP...");
     a2dp_source.end(false);
     delay(300);
 
-    // FULL BT STACK RESET - clean slate
-    Serial.println("[BT SCAN] Resetting BT stack...");
+    if (!btStackStart()) return false;
 
-    // Disable and deinit Bluedroid if it exists
-    esp_bluedroid_disable();
-    esp_bluedroid_deinit();
-
-    // Stop BT controller if running
-    if (btStarted()) {
-        btStop();
+    if (esp_bt_gap_register_callback(gap_scan_callback) != ESP_OK) {
+        Serial.println("[BT SCAN] GAP register failed");
+        return false;
     }
-
-    delay(500);  // Let everything settle
-
-    // Start fresh
-    Serial.println("[BT SCAN] Starting BT controller...");
-    if (!btStart()) {
-        Serial.println("[BT SCAN] BT controller start failed!");
-        return scannedDevices;
-    }
-
-    // Initialize Bluedroid stack
-    Serial.println("[BT SCAN] Initializing Bluedroid...");
-    esp_err_t ret = esp_bluedroid_init();
-    if (ret != ESP_OK) {
-        Serial.printf("[BT SCAN] Bluedroid init failed: %d\n", ret);
-        return scannedDevices;
-    }
-
-    ret = esp_bluedroid_enable();
-    if (ret != ESP_OK) {
-        Serial.printf("[BT SCAN] Bluedroid enable failed: %d\n", ret);
-        return scannedDevices;
-    }
-
-    // Register GAP callback
-    Serial.println("[BT SCAN] Registering GAP callback...");
-    ret = esp_bt_gap_register_callback(gap_scan_callback);
-    if (ret != ESP_OK) {
-        Serial.printf("[BT SCAN] GAP register failed: %d\n", ret);
-        return scannedDevices;
-    }
-
-    // Set scan mode
     esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE, ESP_BT_GENERAL_DISCOVERABLE);
 
-    // Start discovery
-    Serial.println("[BT SCAN] Starting discovery...");
-    ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
-    if (ret != ESP_OK) {
-        Serial.printf("[BT SCAN] Start discovery failed: %d\n", ret);
-        return scannedDevices;
+    esp_err_t ret = esp_bt_gap_start_discovery(ESP_BT_INQ_MODE_GENERAL_INQUIRY, 10, 0);
+    if (ret != ESP_OK) { Serial.printf("[BT SCAN] start_discovery failed: %d\n", ret); return false; }
+
+    Serial.println("[BT SCAN] Discovery started (non-blocking)");
+    return true;
+}
+
+void AudioPlayer::stopScan() {
+    if (!scanComplete) {
+        esp_bt_gap_cancel_discovery();
+        delay(200);
     }
+    btStackStop();
+    scanComplete = true;
+    Serial.println("[BT SCAN] Stopped");
+}
+
+bool AudioPlayer::isScanComplete() {
+    return scanComplete;
+}
+
+std::vector<AudioPlayer::BTDevice> AudioPlayer::getScanResults() {
+    return scannedDevices;  // snapshot copy
+}
+
+// ── Legacy blocking scan ──────────────────────────────────────────────────────
+
+// Scan for Bluetooth devices using pure GAP API (Settings Mode only, no A2DP)
+std::vector<AudioPlayer::BTDevice> AudioPlayer::scanForDevices(int timeoutSeconds) {
+    Serial.println("=== Starting BT Device Scan (blocking) ===");
+    if (!startScan()) return scannedDevices;
 
     // Wait for scan to complete with progress indicator
     unsigned long startTime = millis();
@@ -694,19 +697,8 @@ std::vector<AudioPlayer::BTDevice> AudioPlayer::scanForDevices(int timeoutSecond
         yield();
     }
 
-    // Stop discovery if still running
-    if (!scanComplete) {
-        Serial.println("[BT SCAN] Stopping discovery...");
-        esp_bt_gap_cancel_discovery();
-    }
-
+    stopScan();
     Serial.printf("[BT SCAN] Scan complete: %d devices found\n", scannedDevices.size());
-
-    // Clean up - disable Bluedroid to free resources
-    Serial.println("[BT SCAN] Cleaning up Bluedroid...");
-    esp_bluedroid_disable();
-    esp_bluedroid_deinit();
-
     return scannedDevices;
 }
 

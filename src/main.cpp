@@ -201,26 +201,82 @@ int tryBTConnect() {
     }
 }
 
-// Start BT scan (blocks ~30s), then show device list or retry screen
-void runBTScan() {
-    currentState = STATE_BT_SCANNING;
+// Save selected device and restart
+void selectBTDevice(int idx) {
+    String devName = (globalBTScanResults[idx].name.length() > 0 &&
+                      globalBTScanResults[idx].name != "Unknown")
+        ? globalBTScanResults[idx].name : globalBTScanResults[idx].mac;
+    String devMac = globalBTScanResults[idx].mac;
+
+    JsonDocument newConfig;
+    newConfig.set(configMgr.getConfig());
+    newConfig["btDevice"]    = devName;
+    newConfig["btDeviceMac"] = devMac;
+    configMgr.saveConfig(newConfig);
+
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_GREEN);
+    tft.drawString("Saved!", SCREEN_WIDTH / 2, 80, 4);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString(devName, SCREEN_WIDTH / 2, 130, 2);
     tft.setTextColor(TFT_CYAN);
-    tft.drawString("Scanning for BT...", SCREEN_WIDTH / 2, 75, 4);
+    tft.drawString(devMac, SCREEN_WIDTH / 2, 155, 2);
     tft.setTextColor(TFT_YELLOW);
-    tft.drawString("Put speaker in pairing mode!", SCREEN_WIDTH / 2, 130, 2);
-    tft.drawString("Scanning 30s...", SCREEN_WIDTH / 2, 155, 2);
+    tft.drawString("Restarting...", SCREEN_WIDTH / 2, 185, 2);
+    delay(2000);
+    ESP.restart();
+}
 
-    globalBTScanResults = audioPlayer.scanForDevices(30);
+// Draw the live scan screen header + stop button
+void drawScanScreen(int deviceCount) {
+    tft.fillScreen(TFT_BLACK);
+    tft.setTextDatum(TL_DATUM);
+    tft.setTextColor(TFT_CYAN);
+    tft.drawString("Scanning BT...", 5, 4, 2);
+    tft.setTextColor(TFT_YELLOW);
+    tft.drawString("(tap device to connect)", 5, 22, 1);
 
-    if (globalBTScanResults.empty()) {
-        drawBTFailedScreen("No devices found!");
+    // device count top-right
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(TFT_GREEN);
+    tft.drawString(String(deviceCount) + " found", SCREEN_WIDTH - 5, 4, 2);
+
+    // Stop button  y: 210..238
+    tft.fillRoundRect(20, 210, SCREEN_WIDTH - 40, 28, 6, TFT_DARKGREY);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(TFT_WHITE);
+    tft.drawString("Stop Scan", SCREEN_WIDTH / 2, 224, 2);
+}
+
+// Redraw the live device button list (up to 4 rows)
+void redrawScanDevices(const std::vector<AudioPlayer::BTDevice>& devs) {
+    tft.fillRect(0, 38, SCREEN_WIDTH, 168, TFT_BLACK);
+    int show = min((int)devs.size(), 4);
+    for (int i = 0; i < show; i++) {
+        int btnY = 40 + i * 42;
+        tft.fillRoundRect(5, btnY, SCREEN_WIDTH - 10, 38, 5, 0x2945);
+        tft.setTextDatum(TL_DATUM);
+        tft.setTextColor(TFT_WHITE);
+        String name = (devs[i].name.length() > 0 && devs[i].name != "Unknown")
+            ? devs[i].name : devs[i].mac;
+        if (name.length() > 20) name = name.substring(0, 20);
+        tft.drawString(name + " (" + String(devs[i].rssi) + "dB)", 12, btnY + 11, 2);
+    }
+    // update count
+    tft.fillRect(SCREEN_WIDTH / 2, 0, SCREEN_WIDTH / 2, 20, TFT_BLACK);
+    tft.setTextDatum(TR_DATUM);
+    tft.setTextColor(TFT_GREEN);
+    tft.drawString(String(devs.size()) + " found", SCREEN_WIDTH - 5, 4, 2);
+}
+
+// Start BT scan – non-blocking, UI handled in handleBTScanning()
+void runBTScan() {
+    currentState = STATE_BT_SCANNING;
+    drawScanScreen(0);
+    if (!audioPlayer.startScan()) {
+        drawBTFailedScreen("Scan failed!");
         currentState = STATE_BT_FAILED;
-    } else {
-        btSelectPage = 0;
-        drawBTSelectScreen();
-        currentState = STATE_BT_SELECT;
     }
 }
 
@@ -357,6 +413,63 @@ void handleBTFailed() {
     }
 }
 
+// Live scan loop: devices appear as buttons as they are discovered
+void handleBTScanning() {
+    static int lastDrawnCount = -1;
+
+    // Check for newly found devices and redraw list
+    auto results = audioPlayer.getScanResults();
+    int count = (int)results.size();
+    if (count != lastDrawnCount) {
+        lastDrawnCount = count;
+        redrawScanDevices(results);
+    }
+
+    // Scan finished naturally with no devices
+    if (audioPlayer.isScanComplete() && count == 0) {
+        audioPlayer.stopScan();
+        lastDrawnCount = -1;
+        drawBTFailedScreen("No devices found!");
+        currentState = STATE_BT_FAILED;
+        return;
+    }
+
+    // Scan finished naturally with devices → stay on screen so user can tap
+    // (no auto-transition – user taps or stops manually)
+
+    int x, y;
+    if (!touchDebounced(x, y)) return;
+
+    // Stop button  y: 210..238
+    if (y >= 210) {
+        audioPlayer.stopScan();
+        lastDrawnCount = -1;
+        globalBTScanResults = audioPlayer.getScanResults();
+        if (globalBTScanResults.empty()) {
+            drawBTFailedScreen("No devices found!");
+            currentState = STATE_BT_FAILED;
+        } else {
+            btSelectPage = 0;
+            drawBTSelectScreen();
+            currentState = STATE_BT_SELECT;
+        }
+        return;
+    }
+
+    // Device tap  y: 40 + i*42, height 38
+    int show = min(count, 4);
+    for (int i = 0; i < show; i++) {
+        int btnY = 40 + i * 42;
+        if (y >= btnY && y <= btnY + 38) {
+            audioPlayer.stopScan();
+            lastDrawnCount = -1;
+            globalBTScanResults = audioPlayer.getScanResults();
+            selectBTDevice(i);
+            return;
+        }
+    }
+}
+
 void handleBTSelect() {
     int x, y;
     if (!touchDebounced(x, y)) return;
@@ -370,32 +483,7 @@ void handleBTSelect() {
     for (int i = start; i < end; i++) {
         int btnY = 30 + (i - start) * 45;
         if (y >= btnY && y <= btnY + 40) {
-            String devName = (globalBTScanResults[i].name.length() > 0 &&
-                              globalBTScanResults[i].name != "Unknown")
-                ? globalBTScanResults[i].name : globalBTScanResults[i].mac;
-            String devMac = globalBTScanResults[i].mac;
-
-            Serial.printf("[BT] Selected: name=%s mac=%s\n", devName.c_str(), devMac.c_str());
-
-            // Store both name and MAC
-            JsonDocument newConfig;
-            newConfig.set(configMgr.getConfig());
-            newConfig["btDevice"]    = devName;
-            newConfig["btDeviceMac"] = devMac;
-            configMgr.saveConfig(newConfig);
-
-            tft.fillScreen(TFT_BLACK);
-            tft.setTextDatum(MC_DATUM);
-            tft.setTextColor(TFT_GREEN);
-            tft.drawString("Saved!", SCREEN_WIDTH / 2, 80, 4);
-            tft.setTextColor(TFT_WHITE);
-            tft.drawString(devName, SCREEN_WIDTH / 2, 130, 2);
-            tft.setTextColor(TFT_CYAN);
-            tft.drawString(devMac, SCREEN_WIDTH / 2, 155, 2);
-            tft.setTextColor(TFT_YELLOW);
-            tft.drawString("Restarting...", SCREEN_WIDTH / 2, 185, 2);
-            delay(2000);
-            ESP.restart();
+            selectBTDevice(i);
             return;
         }
     }
@@ -467,10 +555,11 @@ void handleNormal() {
 
 void loop() {
     switch (currentState) {
-        case STATE_BT_FAILED:  handleBTFailed();  break;
-        case STATE_BT_SELECT:  handleBTSelect();  break;
-        case STATE_NORMAL:     handleNormal();    break;
-        case STATE_SETTINGS:   handleSettings();  break;
+        case STATE_BT_FAILED:   handleBTFailed();   break;
+        case STATE_BT_SCANNING: handleBTScanning(); break;
+        case STATE_BT_SELECT:   handleBTSelect();   break;
+        case STATE_NORMAL:      handleNormal();     break;
+        case STATE_SETTINGS:    handleSettings();   break;
         default: break;
     }
     delay(10);
