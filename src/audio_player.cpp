@@ -63,46 +63,41 @@ void AudioPlayer::clearBluetoothPairing() {
     ESP.restart();
 }
 
-bool AudioPlayer::begin(const char* deviceName, bool clearPairing) {
+bool AudioPlayer::begin(const char* deviceName, const char* deviceMac, bool clearPairing) {
     Serial.println("=== Bluetooth A2DP Initialization ===");
-    Serial.print("Target device: ");
-    Serial.println(deviceName);
+    Serial.printf("Name: %s  MAC: %s\n", deviceName, deviceMac ? deviceMac : "(none)");
 
-    // Clear old pairing if requested
     if (clearPairing) {
         clearBluetoothPairing();
-        Serial.println("Will search for device by name...");
     }
 
-    // CRITICAL: Register the audio callback BEFORE starting
-    Serial.println("Registering audio callback...");
     a2dp_source.set_data_callback_in_frames(audioCallback);
 
-    // Detect if stored value is a MAC address (XX:XX:XX:XX:XX:XX)
-    // This happens when the device name was unavailable during scan.
-    // a2dp_source.start() only accepts device names – for MAC, use set_auto_reconnect(addr).
-    String devStr = String(deviceName);
-    bool isMacAddr = (devStr.length() == 17 &&
-                      devStr.charAt(2)  == ':' && devStr.charAt(5)  == ':' &&
-                      devStr.charAt(8)  == ':' && devStr.charAt(11) == ':' &&
-                      devStr.charAt(14) == ':');
-
-    if (isMacAddr) {
+    // Helper to parse and apply MAC-based reconnect
+    auto tryMac = [&](const char* mac) -> bool {
+        if (!mac || strlen(mac) != 17) return false;
         int vals[6];
-        if (sscanf(deviceName, "%x:%x:%x:%x:%x:%x",
-                   &vals[0], &vals[1], &vals[2], &vals[3], &vals[4], &vals[5]) == 6) {
-            esp_bd_addr_t macAddr;
-            for (int i = 0; i < 6; i++) macAddr[i] = (uint8_t)vals[i];
-            Serial.println("MAC address detected – using set_auto_reconnect(addr)");
-            a2dp_source.set_auto_reconnect(macAddr);
-            a2dp_source.start("");
-        } else {
-            Serial.println("MAC parse failed – falling back to name-based connect");
-            a2dp_source.set_auto_reconnect(true);
-            a2dp_source.start(deviceName);
-        }
-    } else {
-        Serial.println("Starting Bluetooth A2DP Source by name...");
+        if (sscanf(mac, "%x:%x:%x:%x:%x:%x",
+                   &vals[0], &vals[1], &vals[2], &vals[3], &vals[4], &vals[5]) != 6) return false;
+        esp_bd_addr_t macAddr;
+        for (int i = 0; i < 6; i++) macAddr[i] = (uint8_t)vals[i];
+        Serial.printf("Connecting by MAC: %s\n", mac);
+        a2dp_source.set_auto_reconnect(macAddr);
+        a2dp_source.start("");
+        return true;
+    };
+
+    // 1. Try MAC first (most reliable)
+    if (tryMac(deviceMac)) {
+        // MAC connect started
+    }
+    // 2. deviceName itself might be a MAC (legacy configs)
+    else if (tryMac(deviceName)) {
+        // MAC connect started
+    }
+    // 3. Fall back to name-based discovery
+    else {
+        Serial.printf("Connecting by name: %s\n", deviceName);
         a2dp_source.set_auto_reconnect(true);
         a2dp_source.start(deviceName);
     }

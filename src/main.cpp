@@ -133,32 +133,39 @@ void drawBTSelectScreen() {
 // can choose at any time.
 // Returns:  1 = connected,  -1 = scan requested,  -2 = settings requested
 int tryBTConnect() {
-    String btDeviceStr = configMgr.getBTDeviceName();
-    static char btDevice[32];
-    strncpy(btDevice, btDeviceStr.c_str(), 31);
-    btDevice[31] = '\0';
+    String btDeviceName = configMgr.getBTDeviceName();
+    String btDeviceMac  = configMgr.getBTDeviceMac();
+
+    static char btName[32];
+    static char btMac[20];
+    strncpy(btName, btDeviceName.c_str(), 31); btName[31] = '\0';
+    strncpy(btMac,  btDeviceMac.c_str(),  19); btMac[19]  = '\0';
 
     // ── Draw waiting screen with buttons ──────────────────────────────
     tft.fillScreen(TFT_BLACK);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(TFT_ORANGE);
-    tft.drawString("Waiting for BT...", SCREEN_WIDTH / 2, 15, 4);
+    tft.drawString("Waiting for BT...", SCREEN_WIDTH / 2, 12, 2);
     tft.setTextColor(TFT_WHITE);
-    tft.drawString(btDeviceStr, SCREEN_WIDTH / 2, 45, 2);
+    tft.drawString(btDeviceName, SCREEN_WIDTH / 2, 32, 2);
+    if (btDeviceMac.length() > 0) {
+        tft.setTextColor(TFT_CYAN);
+        tft.drawString(btDeviceMac, SCREEN_WIDTH / 2, 52, 1);
+    }
 
-    // "Scan BT Devices" button  y: 75..125
-    tft.fillRoundRect(20, 75, SCREEN_WIDTH - 40, 50, 8, TFT_BLUE);
+    // "Scan BT Devices" button  y: 68..118
+    tft.fillRoundRect(20, 68, SCREEN_WIDTH - 40, 50, 8, TFT_BLUE);
     tft.setTextColor(TFT_WHITE);
-    tft.drawString("Scan BT Devices", SCREEN_WIDTH / 2, 100, 2);
+    tft.drawString("Scan BT Devices", SCREEN_WIDTH / 2, 93, 2);
 
-    // "Open Settings" button  y: 135..185
-    tft.fillRoundRect(20, 135, SCREEN_WIDTH - 40, 50, 8, TFT_ORANGE);
+    // "Open Settings" button  y: 128..178
+    tft.fillRoundRect(20, 128, SCREEN_WIDTH - 40, 50, 8, TFT_ORANGE);
     tft.setTextColor(TFT_BLACK);
-    tft.drawString("Open Settings", SCREEN_WIDTH / 2, 160, 2);
+    tft.drawString("Open Settings", SCREEN_WIDTH / 2, 153, 2);
     // ──────────────────────────────────────────────────────────────────
 
     btnMgr.loadConfig(configMgr.getConfig());
-    audioPlayer.begin(btDevice, false);
+    audioPlayer.begin(btName, btDeviceMac.length() > 0 ? btMac : nullptr, false);
     audioPlayer.setVolume(configMgr.getBTVolume());
 
     static unsigned long lastDotUpdate = 0;
@@ -185,8 +192,8 @@ int tryBTConnect() {
                 int tx = map(p.x, 433, 3527, 0, SCREEN_WIDTH);
                 int ty = map(p.y, 566, 3554, 0, SCREEN_HEIGHT);
                 ty = constrain(ty, 0, SCREEN_HEIGHT - 1);
-                if (ty >= 75 && ty <= 125)  { delay(100); return -1; }  // Scan
-                if (ty >= 135 && ty <= 185) { delay(100); return -2; }  // Settings
+                if (ty >= 68  && ty <= 118) { delay(100); return -1; }  // Scan
+                if (ty >= 128 && ty <= 178) { delay(100); return -2; }  // Settings
             }
         }
 
@@ -363,29 +370,30 @@ void handleBTSelect() {
     for (int i = start; i < end; i++) {
         int btnY = 30 + (i - start) * 45;
         if (y >= btnY && y <= btnY + 40) {
-            // Prefer name over MAC – a2dp_source.start() only accepts names.
-            // MAC is only used as fallback (handled in AudioPlayer::begin).
-            String deviceId = (globalBTScanResults[i].name.length() > 0 &&
-                               globalBTScanResults[i].name != "Unknown")
+            String devName = (globalBTScanResults[i].name.length() > 0 &&
+                              globalBTScanResults[i].name != "Unknown")
                 ? globalBTScanResults[i].name : globalBTScanResults[i].mac;
-            String displayName = globalBTScanResults[i].name.length() > 0
-                ? globalBTScanResults[i].name : deviceId;
+            String devMac = globalBTScanResults[i].mac;
 
-            Serial.printf("[BT] Selected: %s -> %s\n", displayName.c_str(), deviceId.c_str());
+            Serial.printf("[BT] Selected: name=%s mac=%s\n", devName.c_str(), devMac.c_str());
 
-            // Persist choice
+            // Store both name and MAC
             JsonDocument newConfig;
             newConfig.set(configMgr.getConfig());
-            newConfig["btDevice"] = deviceId;
+            newConfig["btDevice"]    = devName;
+            newConfig["btDeviceMac"] = devMac;
             configMgr.saveConfig(newConfig);
 
             tft.fillScreen(TFT_BLACK);
             tft.setTextDatum(MC_DATUM);
             tft.setTextColor(TFT_GREEN);
-            tft.drawString("Saved!", SCREEN_WIDTH / 2, 90, 4);
+            tft.drawString("Saved!", SCREEN_WIDTH / 2, 80, 4);
             tft.setTextColor(TFT_WHITE);
-            tft.drawString(displayName, SCREEN_WIDTH / 2, 140, 2);
-            tft.drawString("Restarting...", SCREEN_WIDTH / 2, 170, 2);
+            tft.drawString(devName, SCREEN_WIDTH / 2, 130, 2);
+            tft.setTextColor(TFT_CYAN);
+            tft.drawString(devMac, SCREEN_WIDTH / 2, 155, 2);
+            tft.setTextColor(TFT_YELLOW);
+            tft.drawString("Restarting...", SCREEN_WIDTH / 2, 185, 2);
             delay(2000);
             ESP.restart();
             return;

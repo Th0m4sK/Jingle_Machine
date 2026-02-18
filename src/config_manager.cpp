@@ -74,6 +74,10 @@ String ConfigManager::getBTDeviceName() {
     return config["btDevice"].as<String>();
 }
 
+String ConfigManager::getBTDeviceMac() {
+    return config["btDeviceMac"].as<String>();
+}
+
 uint8_t ConfigManager::getBTVolume() {
     return config["btVolume"].as<uint8_t>();
 }

@@ -22,6 +22,7 @@ public:
 
     String getButtonFile(int id);
     String getBTDeviceName();
+    String getBTDeviceMac();
     uint8_t getBTVolume();
 
 private:
