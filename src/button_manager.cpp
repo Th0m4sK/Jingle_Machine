@@ -182,8 +182,8 @@ int ButtonManager::checkTouch() {
         return checkSimulatedTouch();
     }
 
-    // Hardware touch detection
-    if (!_touch->tirqTouched() || !_touch->touched()) {
+    // Hardware touch detection (tirqTouched() not used – caused false negatives)
+    if (!_touch->touched()) {
         return -1;
     }
 

@@ -20,10 +20,10 @@ bool AudioPlayer::needsWiFiReconnect = false;
 static unsigned long silencePaddingStart = 0;  // Track when to start silence padding
 static const unsigned long SILENCE_PADDING_MS = 200;  // 200ms silence after WAV to prevent click
 static bool inSilencePadding = false;  // Flag to track if we're in silence padding mode
-static const unsigned long FADEIN_MS = 30;  // Fade in first 30ms of WAV to prevent click
+static const unsigned long FADEIN_MS = 100;  // Fade in first 100ms of WAV to prevent click
 static unsigned long fadeInStart = 0;  // When fade-in started
 static bool inFadeIn = false;  // Flag for fade-in mode
-static const unsigned long FADEOUT_MS = 50;  // Fade out last 50ms of WAV to prevent click
+static const unsigned long FADEOUT_MS = 100;  // Fade out last 100ms of WAV to prevent click
 static unsigned long fadeOutStart = 0;  // When fade-out started
 static bool inFadeOut = false;  // Flag for fade-out mode
 
@@ -78,9 +78,34 @@ bool AudioPlayer::begin(const char* deviceName, bool clearPairing) {
     Serial.println("Registering audio callback...");
     a2dp_source.set_data_callback_in_frames(audioCallback);
 
-    a2dp_source.set_auto_reconnect(true);
-    Serial.println("Starting Bluetooth A2DP Source...");
-    a2dp_source.start(deviceName);
+    // Detect if stored value is a MAC address (XX:XX:XX:XX:XX:XX)
+    // This happens when the device name was unavailable during scan.
+    // a2dp_source.start() only accepts device names – for MAC, use set_auto_reconnect(addr).
+    String devStr = String(deviceName);
+    bool isMacAddr = (devStr.length() == 17 &&
+                      devStr.charAt(2)  == ':' && devStr.charAt(5)  == ':' &&
+                      devStr.charAt(8)  == ':' && devStr.charAt(11) == ':' &&
+                      devStr.charAt(14) == ':');
+
+    if (isMacAddr) {
+        int vals[6];
+        if (sscanf(deviceName, "%x:%x:%x:%x:%x:%x",
+                   &vals[0], &vals[1], &vals[2], &vals[3], &vals[4], &vals[5]) == 6) {
+            esp_bd_addr_t macAddr;
+            for (int i = 0; i < 6; i++) macAddr[i] = (uint8_t)vals[i];
+            Serial.println("MAC address detected – using set_auto_reconnect(addr)");
+            a2dp_source.set_auto_reconnect(macAddr);
+            a2dp_source.start("");
+        } else {
+            Serial.println("MAC parse failed – falling back to name-based connect");
+            a2dp_source.set_auto_reconnect(true);
+            a2dp_source.start(deviceName);
+        }
+    } else {
+        Serial.println("Starting Bluetooth A2DP Source by name...");
+        a2dp_source.set_auto_reconnect(true);
+        a2dp_source.start(deviceName);
+    }
 
     Serial.println("Waiting for connection...");
     delay(1000); // Give time to establish connection
@@ -92,6 +117,15 @@ bool AudioPlayer::begin(const char* deviceName, bool clearPairing) {
     }
 
     return true;
+}
+
+void AudioPlayer::end() {
+    Serial.println("[BT] Stopping A2DP source...");
+    playing = false;
+    if (currentFile) currentFile.close();
+    a2dp_source.end(false);
+    delay(300);
+    Serial.println("[BT] A2DP stopped");
 }
 
 bool AudioPlayer::playFile(const String& filepath) {
@@ -558,6 +592,12 @@ std::vector<AudioPlayer::BTDevice> AudioPlayer::scanForDevices(int timeoutSecond
     scannedDevices.clear();
     scanComplete = false;
     deviceCount = 0;
+
+    // Properly shut down A2DP library first (stops its FreeRTOS tasks)
+    // Without this, the raw BT stack reset below triggers an assert crash
+    Serial.println("[BT SCAN] Stopping A2DP source...");
+    a2dp_source.end(false);
+    delay(300);
 
     // FULL BT STACK RESET - clean slate
     Serial.println("[BT SCAN] Resetting BT stack...");

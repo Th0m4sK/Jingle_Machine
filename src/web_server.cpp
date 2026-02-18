@@ -272,28 +272,10 @@ input[type="color"]{width:60px;height:40px;padding:2px;cursor:pointer}
 .status{margin:20px 0;padding:10px;border-radius:4px;text-align:center}
 .button-config{display:grid;grid-template-columns:50px 1fr 1fr 80px 80px;gap:10px;align-items:center;margin:10px 0}
 .color-preview{width:40px;height:40px;border-radius:4px;border:2px solid #444}
-#btDevices{margin-top:10px}
-.bt-device{padding:8px;margin:5px 0;background:#1a1a1a;border:1px solid #444;border-radius:4px;cursor:pointer}
-.bt-device:hover{background:#333}
 </style>
 </head><body>
 <div class="container">
 <h1>Jingle Machine Settings</h1>
-<div class="card">
-<h2>Bluetooth Configuration</h2>
-<div class="form-group">
-<label>Current Device:</label>
-<input type="text" id="btDevice" placeholder="JBL Flip 5" style="width:100%;margin-bottom:10px" readonly>
-<label>Available Devices (scanned at boot):</label>
-<select id="btDeviceList" style="width:100%;margin-bottom:10px">
-<option value="">-- Loading devices... --</option>
-</select>
-<button id="pairBtn" class="btn-primary" onclick="pairDevice()" style="width:100%">
-Pair Selected Device
-</button>
-<div id="btScanStatus" style="margin-top:10px;font-size:0.9em;color:#888"></div>
-</div>
-</div>
 <div class="card">
 <h2>Display Configuration</h2>
 <div class="form-group">
@@ -356,17 +338,11 @@ const c=await r.json();
 if(c&&c.buttons)config=c;
 }
 }catch(e){console.error(e);}
-if(config.btDeviceName&&config.btDevice){
-document.getElementById('btDevice').value=config.btDeviceName+' ('+config.btDevice+')';
-}else{
-document.getElementById('btDevice').value=config.btDevice||'';
-}
 document.getElementById('globalRotation').value=config.rotation||0;
 document.getElementById('borderColor').value=normalizeColor(config.borderColor||'#FFFFFF');
 document.getElementById('borderThickness').value=config.borderThickness||3;
 renderButtons();
 loadFiles();
-scanBT();
 }
 function renderButtons(){
 const html=config.buttons.map((b,i)=>`
@@ -473,79 +449,6 @@ async function saveConfig(){
 keepalive();
 const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(config)});
 showStatus(r.ok?'Saved!':'Error',r.ok?'#4CAF50':'#f44336');
-}
-async function scanBT(){
-keepalive();
-document.getElementById('btScanStatus').innerHTML='Loading devices scanned at boot...';
-document.getElementById('btScanStatus').style.color='#2196F3';
-console.log('[BT SCAN] Fetching /api/scan...');
-try{
-const r=await fetch('/api/scan');
-console.log('[BT SCAN] Response status:', r.status);
-const devices=await r.json();
-console.log('[BT SCAN] Devices received:', devices);
-const select=document.getElementById('btDeviceList');
-select.innerHTML='<option value="">-- Select a device --</option>';
-if(devices.length===0){
-document.getElementById('btScanStatus').innerHTML='No devices found at boot. Reboot in Settings Mode to scan again.';
-document.getElementById('btScanStatus').style.color='#f44336';
-console.log('[BT SCAN] No devices in response');
-return;
-}
-devices.forEach(d=>{
-console.log('[BT SCAN] Adding device:', d.name, d.address);
-const option=document.createElement('option');
-option.value=d.name;
-option.setAttribute('data-mac',d.address);
-option.text=`${d.name} (${d.address}) RSSI: ${d.rssi}`;
-select.appendChild(option);
-});
-document.getElementById('btScanStatus').innerHTML=`${devices.length} device(s) found at boot - select one to pair`;
-document.getElementById('btScanStatus').style.color='#4CAF50';
-console.log('[BT SCAN] Success - populated dropdown');
-}catch(e){
-document.getElementById('btScanStatus').innerHTML='Error loading devices: '+e;
-document.getElementById('btScanStatus').style.color='#f44336';
-console.error('[BT SCAN] Error:', e);
-}
-}
-async function pairDevice(){
-keepalive();
-const select=document.getElementById('btDeviceList');
-const deviceName=select.value;
-if(!deviceName){
-showStatus('Please select a device first','#f44336');
-return;
-}
-const selectedOption=select.options[select.selectedIndex];
-const deviceMac=selectedOption.getAttribute('data-mac');
-console.log('[PAIR] Name:',deviceName,'MAC:',deviceMac);
-document.getElementById('btScanStatus').innerHTML='Saving device...';
-document.getElementById('btScanStatus').style.color='#2196F3';
-document.getElementById('pairBtn').disabled=true;
-try{
-const r=await fetch('/api/pair',{
-method:'POST',
-headers:{'Content-Type':'application/x-www-form-urlencoded'},
-body:'deviceName='+encodeURIComponent(deviceName)+'&deviceMac='+encodeURIComponent(deviceMac)
-});
-const result=await r.text();
-if(r.ok){
-document.getElementById('btDevice').value=deviceName+' ('+deviceMac+')';
-document.getElementById('btScanStatus').innerHTML='Device saved! Will connect in Normal Mode.';
-document.getElementById('btScanStatus').style.color='#4CAF50';
-showStatus('Device paired and saved','#4CAF50');
-}else{
-document.getElementById('btScanStatus').innerHTML='Pairing failed: '+result;
-document.getElementById('btScanStatus').style.color='#f44336';
-showStatus('Pairing failed','#f44336');
-}
-}catch(e){
-document.getElementById('btScanStatus').innerHTML='Error: '+e;
-document.getElementById('btScanStatus').style.color='#f44336';
-}finally{
-document.getElementById('pairBtn').disabled=false;
-}
 }
 async function uploadFiles(){
 keepalive();
@@ -716,79 +619,6 @@ void SettingsServer::setupRoutes() {
                   handleFileUpload(request, filename, index, data, len, final);
               });
 
-    // API: Get pre-scanned Bluetooth devices (scanned before WiFi started)
-    server.on("/api/scan", HTTP_GET, [this](AsyncWebServerRequest *request) {
-        this->resetTimeout();
-
-        Serial.println("[WEB API] BT Scan results requested");
-
-        // Return pre-scanned results from global variable
-        extern std::vector<AudioPlayer::BTDevice> globalBTScanResults;
-
-        Serial.printf("[WEB API] Global scan results size: %d\n", globalBTScanResults.size());
-
-        // Build JSON response with proper escaping
-        String json = "[";
-        for (size_t i = 0; i < globalBTScanResults.size(); i++) {
-            if (i > 0) json += ",";
-
-            // Escape special characters in name
-            String escapedName = globalBTScanResults[i].name;
-            escapedName.replace("\\", "\\\\");  // Escape backslashes
-            escapedName.replace("\"", "\\\"");  // Escape quotes
-            escapedName.replace("\n", "\\n");   // Escape newlines
-            escapedName.replace("\r", "\\r");   // Escape carriage returns
-
-            json += "{";
-            json += "\"name\":\"" + escapedName + "\",";
-            json += "\"address\":\"" + globalBTScanResults[i].mac + "\",";
-            json += "\"rssi\":" + String(globalBTScanResults[i].rssi);
-            json += "}";
-
-            Serial.printf("  [%d] %s (%s) RSSI:%d\n", i,
-                globalBTScanResults[i].name.c_str(),
-                globalBTScanResults[i].mac.c_str(),
-                globalBTScanResults[i].rssi);
-        }
-        json += "]";
-
-        Serial.printf("[WEB API] JSON response: %s\n", json.c_str());
-        Serial.printf("[WEB API] Returning %d pre-scanned devices\n", globalBTScanResults.size());
-        request->send(200, "application/json", json);
-    });
-
-    // API: Pair with selected device (Settings Mode only)
-    server.on("/api/pair", HTTP_POST, [this](AsyncWebServerRequest *request) {
-        this->resetTimeout();
-
-        if (!request->hasParam("deviceName", true) || !request->hasParam("deviceMac", true)) {
-            request->send(400, "text/plain", "Missing deviceName or deviceMac parameter");
-            return;
-        }
-
-        if (!audioPlayer) {
-            request->send(500, "text/plain", "Audio player not available");
-            return;
-        }
-
-        String deviceName = request->getParam("deviceName", true)->value();
-        String deviceMac = request->getParam("deviceMac", true)->value();
-        Serial.print("[WEB API] Pair requested - Name: ");
-        Serial.print(deviceName);
-        Serial.print(" MAC: ");
-        Serial.println(deviceMac);
-
-        // Save to config - use MAC address for reliable connection
-        Serial.println("[WEB API] Saving device MAC and name...");
-
-        JsonDocument updatedConfig = configMgr->getConfig();
-        updatedConfig["btDevice"] = deviceMac;  // Save MAC for connection
-        updatedConfig["btDeviceName"] = deviceName;  // Save name for display
-        configMgr->saveConfig(updatedConfig);
-
-        Serial.println("[WEB API] Config saved - device will connect via MAC in Normal Mode");
-        request->send(200, "text/plain", "Device saved! Will connect in Normal Mode.");
-    });
 
     // API: Keepalive - reset timeout timer
     server.on("/api/keepalive", HTTP_GET, [this](AsyncWebServerRequest *request) {

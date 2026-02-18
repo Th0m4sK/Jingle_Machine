@@ -34,12 +34,12 @@ private:
     static const int BUTTON_CORNER_RADIUS = 5;
     static const int MAX_BUTTONS = 8;
 
-    // Touch calibration constants
+    // Touch calibration constants (calibrated for this CYD unit)
     static const int TOUCH_PRESSURE_THRESHOLD = 200;
-    static const int TOUCH_X_MIN = 200;
-    static const int TOUCH_X_MAX = 3700;
-    static const int TOUCH_Y_MIN = 240;
-    static const int TOUCH_Y_MAX = 3800;
+    static const int TOUCH_X_MIN = 433;
+    static const int TOUCH_X_MAX = 3527;
+    static const int TOUCH_Y_MIN = 566;
+    static const int TOUCH_Y_MAX = 3554;
 
     // Text constants
     static const int TEXT_SIZE = 1;

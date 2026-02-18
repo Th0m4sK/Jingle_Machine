@@ -11,6 +11,7 @@ public:
     AudioPlayer();
 
     bool begin(const char* deviceName = "JBL Flip 5", bool clearPairing = false);
+    void end();  // Stop A2DP (call before starting WiFi AP)
     bool playFile(const String& filepath);
     void stop();
     bool isPlaying();
