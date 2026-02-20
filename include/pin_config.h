@@ -27,6 +27,12 @@
 #define SCREEN_WIDTH  320
 #define SCREEN_HEIGHT 240
 
+// RGB LED (common anode, active-low)
+#define LED_ANODE_PIN 26  // common anode: keep HIGH
+#define LED_R_PIN     22
+#define LED_G_PIN     16
+#define LED_B_PIN     17
+
 // Audio Settings
 #define SAMPLE_RATE 44100
 #define BITS_PER_SAMPLE 16

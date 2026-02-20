@@ -21,6 +21,7 @@ public:
     void clearSettingsModeFlag();  // Clear flag without restarting
 
     String getButtonFile(int id);
+    String getButtonColor(int id);
     String getBTDeviceName();
     String getBTDeviceMac();
     uint8_t getBTVolume();

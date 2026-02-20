@@ -70,6 +70,17 @@ String ConfigManager::getButtonFile(int id) {
     return "";
 }
 
+String ConfigManager::getButtonColor(int id) {
+    if (id < 0 || id >= 8) return "#000000";
+    JsonArray buttons = config["buttons"].as<JsonArray>();
+    for (JsonObject btn : buttons) {
+        if (btn["id"].as<int>() == id) {
+            return btn["color"].as<String>();
+        }
+    }
+    return "#000000";
+}
+
 String ConfigManager::getBTDeviceName() {
     return config["btDevice"].as<String>();
 }
